@@ -595,6 +595,8 @@
         canvasH: 0,
         needsRedraw: true,
         lastDrawMs: 0,
+        lastLoopMs: 0,
+        lastLiveNavUiMs: 0,
         lastHeadingText: "",
         lastScaleText: "",
         displayHeading: 0,
@@ -602,9 +604,11 @@
         logs: [],
 
         gps: {
-          lat: null, lon: null, accuracy: null, speedMps: null, smoothSpeedKmh: 0,
+          lat: null, lon: null, accuracy: null, speedMps: null, rawSpeedMps: 0, smoothSpeedKmh: 0,
           gpsHeading: null, prevPos: null, prevPosTs: 0, derivedHeading: null,
-          lastMoveMs: 0, compassHeading: null, watchId: null, watchdogId: null,
+          lastMoveMs: 0, fixWallMs: 0, lastFixIntervalMs: 1000,
+          renderPos: null, blendOffsetLat: 0, blendOffsetLon: 0, blendStartMs: 0,
+          compassHeading: null, watchId: null, watchdogId: null,
           lowAccuracyMode: false, permState: "tundmatu", status: "idle", errorText: ""
         },
 
@@ -632,8 +636,12 @@
         route: null,
         activeStepIdx: 1,
         riderGeomIdx: 0,
+        riderProj: null,
+        liveRiderProj: null,
         distToNextTurnM: null,
         offRoute: false,
+        offRouteHits: 0,
+        offRouteSinceMs: 0,
         lastChimeKey: null
       };
 
@@ -658,7 +666,7 @@
 
       function getMapCenter() {
         if (!state.followGps && state.viewCenter) return state.viewCenter;
-        if (hasValidGps()) return { lat: state.gps.lat, lon: state.gps.lon };
+        if (hasValidGps()) return state.gps.renderPos || { lat: state.gps.lat, lon: state.gps.lon };
         return null;
       }
 
@@ -1007,11 +1015,214 @@
         return toValidCoord(lat, lon);
       }
 
+      function getEffectiveSpeedMps() {
+        if (Number.isFinite(state.gps.rawSpeedMps) && state.gps.rawSpeedMps >= 0) {
+          return state.gps.rawSpeedMps;
+        }
+        return Math.max(0, (state.gps.smoothSpeedKmh || 0) / 3.6);
+      }
+
+      function projectPointToSegment(pos, a, b, cosLat) {
+        const mPerLat = 111320;
+        const mPerLon = 111320 * Math.max(0.15, cosLat);
+        const bx = (b.lon - a.lon) * mPerLon;
+        const by = (b.lat - a.lat) * mPerLat;
+        const px = (pos.lon - a.lon) * mPerLon;
+        const py = (pos.lat - a.lat) * mPerLat;
+        const ab2 = bx * bx + by * by;
+        let t = 0;
+        if (ab2 > 1e-6) {
+          t = Math.max(0, Math.min(1, (px * bx + py * by) / ab2));
+        }
+        const dx = px - t * bx;
+        const dy = py - t * by;
+        return {
+          t,
+          distM: Math.hypot(dx, dy),
+          point: {
+            lat: a.lat + (b.lat - a.lat) * t,
+            lon: a.lon + (b.lon - a.lon) * t
+          }
+        };
+      }
+
+      function findRouteProjection(pos, route, hintSegIdx, speedMps, fallbackDistM) {
+        const coords = route.coords;
+        const cumDist = route.cumDist;
+        const maxSeg = coords.length - 2;
+        if (maxSeg < 0) return null;
+
+        const cosLat = Math.cos(toRad(pos.lat));
+        const clampedHint = Math.max(0, Math.min(maxSeg, hintSegIdx || 0));
+        const hintAlongM = cumDist[clampedHint];
+        const searchBehindM = Math.max(180, (speedMps || 0) * 6);
+        const searchAheadM = Math.max(600, (speedMps || 0) * 28);
+
+        let segStart = clampedHint;
+        while (segStart > 0 && (clampedHint - segStart < 15 || hintAlongM - cumDist[segStart] < searchBehindM)) {
+          segStart--;
+        }
+        let segEnd = clampedHint;
+        while (segEnd < maxSeg && (segEnd - clampedHint < 40 || cumDist[segEnd + 1] - hintAlongM < searchAheadM)) {
+          segEnd++;
+        }
+
+        let best = null;
+        let bestSegIdx = clampedHint;
+        for (let i = segStart; i <= segEnd; i++) {
+          const p = projectPointToSegment(pos, coords[i], coords[i + 1], cosLat);
+          if (!best || p.distM < best.distM - 0.05 || (Math.abs(p.distM - best.distM) <= 0.05 && i >= clampedHint)) {
+            best = p;
+            bestSegIdx = i;
+          }
+        }
+
+        if (!best || best.distM > (fallbackDistM || 70)) {
+          for (let i = 0; i <= maxSeg; i++) {
+            if (i >= segStart && i <= segEnd) continue;
+            const p = projectPointToSegment(pos, coords[i], coords[i + 1], cosLat);
+            if (!best || p.distM < best.distM) {
+              best = p;
+              bestSegIdx = i;
+            }
+          }
+        }
+
+        const segLen = Math.max(0, cumDist[bestSegIdx + 1] - cumDist[bestSegIdx]);
+        return {
+          segIdx: bestSegIdx,
+          t: best.t,
+          distM: best.distM,
+          point: best.point,
+          alongM: cumDist[bestSegIdx] + best.t * segLen
+        };
+      }
+
+      function pointAtRouteDistance(route, targetAlongM, hintSegIdx) {
+        const coords = route.coords;
+        const cumDist = route.cumDist;
+        const maxSeg = coords.length - 2;
+        if (maxSeg < 0) return null;
+
+        const totalM = cumDist[coords.length - 1] || 0;
+        const clampedM = Math.max(0, Math.min(totalM, targetAlongM));
+
+        let segIdx = Math.max(0, Math.min(maxSeg, hintSegIdx || 0));
+        if (cumDist[segIdx] > clampedM || cumDist[segIdx + 1] < clampedM) {
+          let lo = 0, hi = maxSeg;
+          while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (cumDist[mid + 1] < clampedM) lo = mid + 1;
+            else if (cumDist[mid] > clampedM) hi = mid - 1;
+            else { segIdx = mid; break; }
+          }
+          if (lo > hi) segIdx = Math.max(0, Math.min(maxSeg, lo));
+        }
+
+        const segStartM = cumDist[segIdx];
+        const segLen = cumDist[segIdx + 1] - segStartM;
+        const t = segLen > 1e-4 ? Math.max(0, Math.min(1, (clampedM - segStartM) / segLen)) : 0;
+        const a = coords[segIdx], b = coords[segIdx + 1];
+        return {
+          segIdx,
+          t,
+          alongM: clampedM,
+          distM: 0,
+          point: {
+            lat: a.lat + (b.lat - a.lat) * t,
+            lon: a.lon + (b.lon - a.lon) * t
+          }
+        };
+      }
+
+      function advanceCoordByHeading(coord, headingDeg, distM) {
+        if (!coord || !Number.isFinite(distM) || distM <= 0 || !Number.isFinite(headingDeg)) return coord;
+        const rad = toRad(headingDeg);
+        const dLat = (Math.cos(rad) * distM) / 111320;
+        const dLon = (Math.sin(rad) * distM) / (111320 * Math.max(0.15, Math.cos(toRad(coord.lat))));
+        return { lat: coord.lat + dLat, lon: coord.lon + dLon };
+      }
+
+      function getRouteAlignedPos(rawPos, baseProj, liveProj) {
+        if (!baseProj || !liveProj) return rawPos;
+        const dLat = liveProj.point.lat - baseProj.point.lat;
+        const dLon = liveProj.point.lon - baseProj.point.lon;
+        const advRaw = { lat: rawPos.lat + dLat, lon: rawPos.lon + dLon };
+        const dist = baseProj.distM;
+        const snapW = dist <= 12 ? 1 : (dist < 28 ? (28 - dist) / 16 : 0);
+        if (snapW <= 0) return advRaw;
+        return {
+          lat: advRaw.lat + (liveProj.point.lat - advRaw.lat) * snapW,
+          lon: advRaw.lon + (liveProj.point.lon - advRaw.lon) * snapW
+        };
+      }
+
+      function getMovementHeadingDeg() {
+        const speedKmh = state.gps.smoothSpeedKmh || (getEffectiveSpeedMps() * 3.6);
+        if (speedKmh >= 3.5 && Number.isFinite(state.gps.gpsHeading)) return state.gps.gpsHeading;
+        if (Number.isFinite(state.gps.derivedHeading)) return state.gps.derivedHeading;
+        if (Number.isFinite(state.gps.gpsHeading)) return state.gps.gpsHeading;
+        return null;
+      }
+
+      function getLiveNavigationState(nowPerf) {
+        if (!hasValidGps()) return null;
+        const rawPos = { lat: state.gps.lat, lon: state.gps.lon };
+        const speedMps = getEffectiveSpeedMps();
+        const isMoving = speedMps >= 1.2;
+        const elapsedSec = state.gps.fixWallMs > 0 ? Math.max(0, (nowPerf - state.gps.fixWallMs) / 1000) : 0;
+        const maxExtrapSec = Math.min(2.5, Math.max(1.2, (state.gps.lastFixIntervalMs / 1000) * 1.35));
+
+        let effSec = 0;
+        if (isMoving && elapsedSec > 0) {
+          const clamped = Math.min(elapsedSec, maxExtrapSec);
+          effSec = clamped <= 1.5 ? clamped : 1.5 + (clamped - 1.5) * 0.5;
+        }
+        const advanceM = speedMps * effSec;
+
+        let offLat = 0, offLon = 0;
+        if (state.gps.blendStartMs > 0 && (state.gps.blendOffsetLat !== 0 || state.gps.blendOffsetLon !== 0)) {
+          const blendDt = Math.max(0, (nowPerf - state.gps.blendStartMs) / 1000);
+          if (blendDt < 0.75) {
+            const decay = Math.exp(-blendDt / 0.14);
+            offLat = state.gps.blendOffsetLat * decay;
+            offLon = state.gps.blendOffsetLon * decay;
+          } else {
+            state.gps.blendOffsetLat = 0;
+            state.gps.blendOffsetLon = 0;
+            state.gps.blendStartMs = 0;
+          }
+        }
+
+        let liveProj = state.riderProj;
+        let basePos = rawPos;
+
+        if (state.mode === "route" && state.route && !state.offRoute && state.riderProj) {
+          liveProj = advanceM > 0
+            ? pointAtRouteDistance(state.route, state.riderProj.alongM + advanceM, state.riderProj.segIdx)
+            : state.riderProj;
+          basePos = getRouteAlignedPos(rawPos, state.riderProj, liveProj);
+        } else if (advanceM > 0) {
+          const moveHdg = getMovementHeadingDeg();
+          if (moveHdg !== null) {
+            basePos = advanceCoordByHeading(rawPos, moveHdg, advanceM);
+          }
+        }
+
+        const livePos = { lat: basePos.lat + offLat, lon: basePos.lon + offLon };
+        state.gps.renderPos = livePos;
+        state.liveRiderProj = liveProj;
+
+        const animating = (isMoving && elapsedSec < maxExtrapSec) || offLat !== 0 || offLon !== 0;
+        return { pos: livePos, proj: liveProj, animating, speedMps };
+      }
+
       function getRouteForwardBearing() {
         if (!state.route || !state.route.coords || state.route.coords.length < 2) return null;
         const coords = state.route.coords;
-        const startIdx = Math.min(state.riderGeomIdx, coords.length - 2);
-        const p0 = coords[startIdx];
+        const proj = state.liveRiderProj || state.riderProj;
+        const startIdx = proj ? Math.min(proj.segIdx, coords.length - 2) : Math.min(state.riderGeomIdx, coords.length - 2);
+        const p0 = proj ? proj.point : coords[startIdx];
         for (let i = startIdx + 1; i < coords.length; i++) {
           if (distanceMeters(p0, coords[i]) >= 25 || i === coords.length - 1) {
             return bearingDegrees(p0, coords[i]);
@@ -1795,7 +2006,7 @@
         const opts = {
           enableHighAccuracy: !useLowAccuracy,
           timeout: 7500,
-          maximumAge: useLowAccuracy ? 60000 : 3000
+          maximumAge: useLowAccuracy ? 60000 : 1000
         };
 
         navigator.geolocation.getCurrentPosition(
@@ -1805,7 +2016,7 @@
               state.gps.watchId = navigator.geolocation.watchPosition(
                 onGpsSuccess,
                 (wErr) => addLog(`watchPosition hoiatus (${wErr.code})`),
-                { enableHighAccuracy: !useLowAccuracy, timeout: 15000, maximumAge: 2000 }
+                { enableHighAccuracy: !useLowAccuracy, timeout: 15000, maximumAge: 0 }
               );
             }
           },
@@ -1823,6 +2034,15 @@
         const coord = toValidCoord(position.coords.latitude, position.coords.longitude);
         if (!coord) return;
 
+        const nowPerf = performance.now();
+        const prevRenderPos = state.gps.renderPos;
+        if (state.gps.fixWallMs > 0) {
+          const fixDt = nowPerf - state.gps.fixWallMs;
+          if (fixDt >= 200 && fixDt <= 4000) {
+            state.gps.lastFixIntervalMs = state.gps.lastFixIntervalMs * 0.6 + fixDt * 0.4;
+          }
+        }
+
         const nowMs = position.timestamp || Date.now();
         const acc = Number.isFinite(position.coords.accuracy) ? parseFloat(position.coords.accuracy) : null;
         let derivedSpeedKmh = null;
@@ -1835,9 +2055,11 @@
             if (state.gps.derivedHeading === null) state.gps.derivedHeading = newBrg;
             else {
               const d = shortestAngleDelta(state.gps.derivedHeading, newBrg);
-              state.gps.derivedHeading = (state.gps.derivedHeading + d * 0.45 + 360) % 360;
+              const brgAlpha = movedM >= 15 ? 0.7 : 0.45;
+              state.gps.derivedHeading = (state.gps.derivedHeading + d * brgAlpha + 360) % 360;
             }
-            if (acc !== null && acc <= 25 && dtSec >= 1 && dtSec <= 15 && movedM >= 7) {
+            const minDeriveMove = acc !== null ? Math.max(4, acc * 0.35) : 5;
+            if ((acc === null || acc <= 45) && dtSec >= 0.35 && dtSec <= 15 && movedM >= minDeriveMove) {
               derivedSpeedKmh = Math.min(220, (movedM / dtSec) * 3.6);
             }
             state.gps.lastMoveMs = Date.now();
@@ -1852,6 +2074,7 @@
         const wasEmpty = !hasValidGps();
         state.gps.lat = coord.lat;
         state.gps.lon = coord.lon;
+        state.gps.fixWallMs = nowPerf;
         state.gps.accuracy = acc;
         state.gps.speedMps = (position.coords.speed !== null && Number.isFinite(position.coords.speed))
           ? Math.max(0, parseFloat(position.coords.speed)) : null;
@@ -1860,11 +2083,12 @@
 
         let rawKmh = state.gps.speedMps !== null
           ? state.gps.speedMps * 3.6
-          : (derivedSpeedKmh !== null ? derivedSpeedKmh : (Date.now() - state.gps.lastMoveMs > 5000 ? 0 : state.gps.smoothSpeedKmh));
+          : (derivedSpeedKmh !== null ? derivedSpeedKmh : (Date.now() - state.gps.lastMoveMs > 4000 ? 0 : state.gps.smoothSpeedKmh));
         if (rawKmh < 2.2) rawKmh = 0;
-        const spdAlpha = rawKmh < state.gps.smoothSpeedKmh ? 0.35 : 0.22;
+        const spdAlpha = rawKmh < state.gps.smoothSpeedKmh ? 0.5 : 0.35;
         state.gps.smoothSpeedKmh = state.gps.smoothSpeedKmh + (rawKmh - state.gps.smoothSpeedKmh) * spdAlpha;
         if (state.gps.smoothSpeedKmh < 1) state.gps.smoothSpeedKmh = 0;
+        state.gps.rawSpeedMps = rawKmh / 3.6;
 
         if (state.gps.speedMps !== null && state.gps.speedMps >= 1.0 && state.gps.gpsHeading !== null) {
           state.gps.lastMoveMs = Date.now();
@@ -1883,6 +2107,31 @@
         } else {
           updateNavigation();
         }
+
+        const newBasePos = (state.mode === "route" && state.route && !state.offRoute && state.riderProj)
+          ? getRouteAlignedPos(coord, state.riderProj, state.riderProj)
+          : coord;
+        if (prevRenderPos) {
+          const jumpM = distanceMeters(prevRenderPos, newBasePos);
+          if (jumpM > 0.3 && jumpM < 90) {
+            state.gps.blendOffsetLat = prevRenderPos.lat - newBasePos.lat;
+            state.gps.blendOffsetLon = prevRenderPos.lon - newBasePos.lon;
+            state.gps.blendStartMs = nowPerf;
+          } else {
+            state.gps.blendOffsetLat = 0;
+            state.gps.blendOffsetLon = 0;
+            state.gps.blendStartMs = 0;
+          }
+        } else {
+          state.gps.blendOffsetLat = 0;
+          state.gps.blendOffsetLon = 0;
+          state.gps.blendStartMs = 0;
+        }
+        state.gps.renderPos = {
+          lat: newBasePos.lat + state.gps.blendOffsetLat,
+          lon: newBasePos.lon + state.gps.blendOffsetLon
+        };
+        state.liveRiderProj = state.riderProj;
 
         if (state.autoZoom && state.followGps) state.targetRadiusM = computeAutoZoomTarget();
         if (state.followGps) {
@@ -2005,6 +2254,11 @@
         el.searchInput.value = dest.name;
         state.destination = dest;
         state.route = null;
+        state.riderProj = null;
+        state.liveRiderProj = null;
+        state.offRoute = false;
+        state.offRouteHits = 0;
+        state.offRouteSinceMs = 0;
         state.distToNextTurnM = null;
         el.clearBtn.style.display = "inline-block";
 
@@ -2134,6 +2388,11 @@
           const coords = r.geometry.coordinates.map((p) => toValidCoord(p[1], p[0])).filter(Boolean);
           if (coords.length < 2) throw new Error("Tühi teekond.");
 
+          const cumDist = new Float64Array(coords.length);
+          for (let i = 1; i < coords.length; i++) {
+            cumDist[i] = cumDist[i - 1] + distanceMeters(coords[i - 1], coords[i]);
+          }
+
           let idxCursor = 0;
           const steps = (r.legs[0].steps || []).map((s) => {
             const loc = toValidCoord(s.maneuver.location[1], s.maneuver.location[0]);
@@ -2153,14 +2412,21 @@
           }).filter(Boolean);
 
           state.route = {
-            coords, steps,
-            totalDistance: parseFloat(r.distance) || 0,
+            coords, steps, cumDist,
+            totalDistance: parseFloat(r.distance) || cumDist[coords.length - 1] || 0,
             totalDuration: parseFloat(r.duration) || 0
           };
           state.riderGeomIdx = 0;
+          state.riderProj = null;
+          state.liveRiderProj = null;
           state.activeStepIdx = steps.length > 1 ? 1 : 0;
           state.offRoute = false;
+          state.offRouteHits = 0;
+          state.offRouteSinceMs = 0;
           state.lastChimeKey = null;
+          state.gps.blendOffsetLat = 0;
+          state.gps.blendOffsetLon = 0;
+          state.gps.blendStartMs = 0;
           addLog(`Marsruut OK: ${formatDistance(state.route.totalDistance)}`);
           updateNavigation();
           if (state.autoZoom && state.followGps) state.targetRadiusM = computeAutoZoomTarget();
@@ -2175,6 +2441,66 @@
       }
 
       /* ===================== NAVIGEERIMINE ===================== */
+
+      function updateRouteProgressUI(proj, pos, speedMps) {
+        if (!state.route || !proj || !pos) return;
+        const { coords, steps, cumDist } = state.route;
+        const alongM = proj.alongM;
+        const passMarginM = Math.min(45, Math.max(20, (speedMps || 0) * 1.1));
+
+        let nextIdx = steps.length - 1;
+        for (let i = 1; i < steps.length; i++) {
+          const stepAlongM = cumDist[steps[i].geomIdx];
+          if (stepAlongM > alongM + 5 || i === steps.length - 1) {
+            if (i < steps.length - 1 && (stepAlongM - alongM) < passMarginM && distanceMeters(pos, steps[i]) < passMarginM) {
+              continue;
+            }
+            nextIdx = i;
+            break;
+          }
+        }
+        state.activeStepIdx = nextIdx;
+        const step = steps[nextIdx];
+
+        const totalGeomDist = cumDist[coords.length - 1] || 0;
+        const stepAlongM = cumDist[step.geomIdx];
+        const distToTurn = Math.max(0, stepAlongM - alongM);
+        const remDist = Math.max(0, totalGeomDist - alongM);
+        const remSec = state.route.totalDistance > 0
+          ? state.route.totalDuration * Math.min(1, remDist / state.route.totalDistance) : 0;
+
+        const directToDest = distanceMeters(pos, state.destination);
+        state.distToNextTurnM = state.offRoute ? null : distToTurn;
+
+        if (state.offRoute) {
+          el.turnDist.textContent = formatDistance(proj.distM);
+          el.turnDist.className = "turn-dist offroute";
+          el.turnDesc.textContent = "Teekonnalt kõrval";
+          el.turnStreet.textContent = "Vajuta «UUS TEE»";
+          renderManeuverIcon("offroute");
+        } else if (directToDest < 30 || (step.type === "arrive" && distToTurn < 35 && directToDest < 60)) {
+          el.turnDist.textContent = "KOHAL";
+          el.turnDist.className = "turn-dist soon";
+          el.turnDesc.textContent = "Oled sihtkohas";
+          el.turnStreet.textContent = state.destination.name;
+          renderManeuverIcon("arrive");
+        } else {
+          const soonDist = Math.max(200, Math.min(350, (speedMps || 0) * 10));
+          el.turnDist.textContent = formatDistance(distToTurn);
+          el.turnDist.className = "turn-dist" + (distToTurn <= soonDist ? " soon" : "");
+          el.turnDesc.textContent = translateManeuver(step);
+          el.turnStreet.textContent = step.name || state.destination.name;
+          renderManeuverIcon(getIconKey(step));
+          const chimeDist = Math.max(180, Math.min(350, (speedMps || 0) * 10));
+          const key = `${nextIdx}_200`;
+          if (distToTurn <= chimeDist && distToTurn > 30 && state.lastChimeKey !== key) {
+            state.lastChimeKey = key;
+            playTurnChime();
+          }
+        }
+        el.remDistVal.textContent = formatDistance(remDist);
+        el.etaVal.textContent = formatDuration(remSec);
+      }
 
       function updateNavigation() {
         if (!hasValidGps()) {
@@ -2219,75 +2545,38 @@
           return;
         }
 
-        const { coords, steps } = state.route;
-        let closestIdx = state.riderGeomIdx, minDist = Infinity;
-        const s0 = Math.max(0, state.riderGeomIdx - 15);
-        const s1 = Math.min(coords.length - 1, state.riderGeomIdx + 80);
-        for (let i = s0; i <= s1; i++) {
-          const d = distanceMeters(pos, coords[i]);
-          if (d < minDist) { minDist = d; closestIdx = i; }
-        }
-        if (minDist > 80) {
-          for (let i = 0; i < coords.length; i++) {
-            const d = distanceMeters(pos, coords[i]);
-            if (d < minDist) { minDist = d; closestIdx = i; }
+        const speedMps = getEffectiveSpeedMps();
+        const accM = Number.isFinite(state.gps.accuracy) ? Math.min(45, state.gps.accuracy) : 12;
+        const offRouteEnterM = Math.max(55, Math.min(130, 50 + speedMps * 1.4 + accM * 0.65));
+        const offRouteExitM = offRouteEnterM * 0.78;
+
+        const hintSegIdx = state.riderProj ? state.riderProj.segIdx : state.riderGeomIdx;
+        const proj = findRouteProjection(pos, state.route, hintSegIdx, speedMps, offRouteEnterM);
+        if (!proj) return;
+
+        state.riderProj = proj;
+        state.liveRiderProj = proj;
+        state.riderGeomIdx = proj.segIdx;
+
+        const nowMs = Date.now();
+        if (proj.distM > offRouteEnterM) {
+          if (!state.offRoute) {
+            state.offRouteHits += 1;
+            if (!state.offRouteSinceMs) state.offRouteSinceMs = nowMs;
+            const sustained = (nowMs - state.offRouteSinceMs) >= 2200;
+            const extreme = proj.distM > offRouteEnterM * 2.0;
+            if ((state.offRouteHits >= 2 && sustained) || state.offRouteHits >= 3 || extreme) {
+              state.offRoute = true;
+            }
           }
+        } else if (proj.distM <= offRouteExitM) {
+          state.offRoute = false;
+          state.offRouteHits = 0;
+          state.offRouteSinceMs = 0;
         }
-        state.riderGeomIdx = closestIdx;
-        state.offRoute = minDist > 80;
         el.offrouteBanner.classList.toggle("show", state.offRoute);
 
-        let nextIdx = steps.length - 1;
-        for (let i = 1; i < steps.length; i++) {
-          if (steps[i].geomIdx > closestIdx || i === steps.length - 1) {
-            if (distanceMeters(pos, steps[i]) < 25 && i < steps.length - 1) continue;
-            nextIdx = i;
-            break;
-          }
-        }
-        state.activeStepIdx = nextIdx;
-        const step = steps[nextIdx];
-
-        let distToTurn = distanceMeters(pos, coords[closestIdx]);
-        for (let i = closestIdx; i < step.geomIdx && i < coords.length - 1; i++) {
-          distToTurn += distanceMeters(coords[i], coords[i + 1]);
-        }
-        let remDist = distanceMeters(pos, coords[closestIdx]);
-        for (let i = closestIdx; i < coords.length - 1; i++) {
-          remDist += distanceMeters(coords[i], coords[i + 1]);
-        }
-        const remSec = state.route.totalDistance > 0
-          ? state.route.totalDuration * Math.min(1, remDist / state.route.totalDistance) : 0;
-
-        const directToDest = distanceMeters(pos, state.destination);
-        state.distToNextTurnM = state.offRoute ? null : distToTurn;
-
-        if (state.offRoute) {
-          el.turnDist.textContent = formatDistance(minDist);
-          el.turnDist.className = "turn-dist offroute";
-          el.turnDesc.textContent = "Teekonnalt kõrval";
-          el.turnStreet.textContent = "Vajuta «UUS TEE»";
-          renderManeuverIcon("offroute");
-        } else if (directToDest < 30 || (step.type === "arrive" && distToTurn < 35 && directToDest < 60)) {
-          el.turnDist.textContent = "KOHAL";
-          el.turnDist.className = "turn-dist soon";
-          el.turnDesc.textContent = "Oled sihtkohas";
-          el.turnStreet.textContent = state.destination.name;
-          renderManeuverIcon("arrive");
-        } else {
-          el.turnDist.textContent = formatDistance(distToTurn);
-          el.turnDist.className = "turn-dist" + (distToTurn <= 200 ? " soon" : "");
-          el.turnDesc.textContent = translateManeuver(step);
-          el.turnStreet.textContent = step.name || state.destination.name;
-          renderManeuverIcon(getIconKey(step));
-          const key = `${nextIdx}_200`;
-          if (distToTurn <= 180 && distToTurn > 30 && state.lastChimeKey !== key) {
-            state.lastChimeKey = key;
-            playTurnChime();
-          }
-        }
-        el.remDistVal.textContent = formatDistance(remDist);
-        el.etaVal.textContent = formatDuration(remSec);
+        updateRouteProgressUI(proj, pos, speedMps);
       }
 
       function translateManeuver(s) {
@@ -2685,35 +2974,45 @@
           // C) AKTIIVNE MARSRUUT
           if (state.route && state.route.coords.length > 1) {
             const coords = state.route.coords;
+            const drawProj = state.liveRiderProj || state.riderProj;
+            const splitSegIdx = drawProj
+              ? Math.max(0, Math.min(coords.length - 2, drawProj.segIdx))
+              : Math.max(0, Math.min(coords.length - 2, state.riderGeomIdx));
+            const splitPt = drawProj ? drawProj.point : coords[splitSegIdx];
+            const pSplit = toMapXY(splitPt);
+
             ctx.lineCap = "round";
             ctx.lineJoin = "round";
 
-            if (state.riderGeomIdx > 0) {
+            if (splitSegIdx > 0 || (drawProj && drawProj.t > 0.001)) {
               ctx.strokeStyle = pal.passed;
               ctx.lineWidth = 6;
               ctx.beginPath();
-              for (let i = 0; i <= state.riderGeomIdx; i++) {
+              for (let i = 0; i <= splitSegIdx; i++) {
                 const p = toMapXY(coords[i]);
                 if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
               }
+              ctx.lineTo(pSplit.x, pSplit.y);
               ctx.stroke();
             }
 
             ctx.strokeStyle = pal.bg;
             ctx.lineWidth = 10;
             ctx.beginPath();
-            for (let i = state.riderGeomIdx; i < coords.length; i++) {
+            ctx.moveTo(pSplit.x, pSplit.y);
+            for (let i = splitSegIdx + 1; i < coords.length; i++) {
               const p = toMapXY(coords[i]);
-              if (i === state.riderGeomIdx) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+              ctx.lineTo(p.x, p.y);
             }
             ctx.stroke();
 
             ctx.strokeStyle = pal.route;
             ctx.lineWidth = 6.5;
             ctx.beginPath();
-            for (let i = state.riderGeomIdx; i < coords.length; i++) {
+            ctx.moveTo(pSplit.x, pSplit.y);
+            for (let i = splitSegIdx + 1; i < coords.length; i++) {
               const p = toMapXY(coords[i]);
-              if (i === state.riderGeomIdx) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+              ctx.lineTo(p.x, p.y);
             }
             ctx.stroke();
 
@@ -2754,7 +3053,7 @@
 
           // E) KUI KAARTI ON NIHUTATUD, JOONISTA SÕITJA TEGELIK GPS-NOOL KAARDILE
           if (!state.followGps && hasValidGps()) {
-            const rp = toMapXY({ lat: state.gps.lat, lon: state.gps.lon });
+            const rp = toMapXY(state.gps.renderPos || { lat: state.gps.lat, lon: state.gps.lon });
             drawRiderArrow(ctx, rp.x, rp.y, toRad(hdgInfo.deg), pal);
           }
 
@@ -2822,11 +3121,33 @@
       }
 
       function renderLoop(ts) {
+        const dtSec = state.lastLoopMs > 0 ? Math.min(0.25, Math.max(0.001, (ts - state.lastLoopMs) / 1000)) : 0.016;
+        state.lastLoopMs = ts;
+
+        const liveMotion = getLiveNavigationState(ts);
+        if (liveMotion && liveMotion.animating) {
+          state.needsRedraw = true;
+          if (
+            state.mode === "route" &&
+            state.route &&
+            !state.offRoute &&
+            liveMotion.proj &&
+            ts - state.lastLiveNavUiMs >= 200
+          ) {
+            state.lastLiveNavUiMs = ts;
+            updateRouteProgressUI(liveMotion.proj, liveMotion.pos, liveMotion.speedMps);
+            if (state.autoZoom && state.followGps) state.targetRadiusM = computeAutoZoomTarget();
+          }
+        }
+
         if (state.followGps || state.orientMode === "north") {
           const targetHdg = getActiveHeading().deg;
           const hDiff = shortestAngleDelta(state.displayHeading, targetHdg);
-          if (Math.abs(hDiff) > 0.25) {
-            state.displayHeading = (state.displayHeading + hDiff * 0.22 + 360) % 360;
+          if (Math.abs(hDiff) > 0.2) {
+            const speedKmh = state.gps.smoothSpeedKmh || 0;
+            const hdgRate = speedKmh >= 40 ? 9.5 : 5.5;
+            const hFactor = 1 - Math.exp(-hdgRate * dtSec);
+            state.displayHeading = (state.displayHeading + hDiff * hFactor + 360) % 360;
             state.needsRedraw = true;
           }
         }
@@ -2834,7 +3155,8 @@
         if (!state.isInteracting) {
           const rDiff = state.targetRadiusM - state.radarRadiusM;
           if (Math.abs(rDiff) > Math.max(2, state.targetRadiusM * 0.008)) {
-            state.radarRadiusM += rDiff * 0.14;
+            const rFactor = 1 - Math.exp(-3.6 * dtSec);
+            state.radarRadiusM += rDiff * rFactor;
             state.needsRedraw = true;
           } else if (state.radarRadiusM !== state.targetRadiusM) {
             state.radarRadiusM = state.targetRadiusM;
@@ -2847,7 +3169,11 @@
           state.needsRedraw = true;
         }
 
-        const minFrameMs = (state.isInteracting || animateLongPress) ? 16 : 50;
+        const movingFast = liveMotion && liveMotion.animating && liveMotion.speedMps >= 10;
+        const movingAny = liveMotion && liveMotion.animating;
+        const minFrameMs = (state.isInteracting || animateLongPress)
+          ? 16
+          : (movingFast ? 25 : (movingAny ? 33 : 50));
         if (state.needsRedraw && ts - state.lastDrawMs >= minFrameMs) {
           state.needsRedraw = false;
           state.lastDrawMs = ts;
@@ -3011,7 +3337,10 @@
       el.searchBtn.addEventListener("click", searchDestination);
       el.searchInput.addEventListener("keydown", (e) => { if (e.key === "Enter") searchDestination(); });
       el.clearBtn.addEventListener("click", () => {
-        state.destination = null; state.route = null; state.offRoute = false; state.distToNextTurnM = null;
+        state.destination = null; state.route = null;
+        state.riderProj = null; state.liveRiderProj = null;
+        state.offRoute = false; state.offRouteHits = 0; state.offRouteSinceMs = 0;
+        state.distToNextTurnM = null;
         el.searchInput.value = ""; el.clearBtn.style.display = "none";
         el.offrouteBanner.classList.remove("show");
         el.turnDist.textContent = "--"; el.turnDist.className = "turn-dist";
