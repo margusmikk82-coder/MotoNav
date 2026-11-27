@@ -408,14 +408,14 @@
           <button id="poiMenuBtn" class="map-chip" type="button">HUVIPUNKTID</button>
           <button id="autoZoomBtn" class="map-chip active" type="button">SUUM: AUTO</button>
           <button id="orientBtn" class="map-chip" type="button">SUUND ÜLES</button>
-          <button id="baseMapBtn" class="map-chip" type="button">ALUS: OSM+TEED</button>
+          <button id="baseMapBtn" class="map-chip" type="button">ALUS: LINNAKAART</button>
         </div>
 
         <div id="offrouteBanner" class="offroute-banner">
           <button id="recalcBtn" class="btn-primary" type="button">UUS TEE</button>
         </div>
 
-        <div class="osm-credit">© OpenStreetMap</div>
+        <div id="mapCredit" class="osm-credit">© Esri, HERE, Garmin, OSM</div>
 
         <div class="canvas-controls-right">
           <button id="recenterBtn" class="fab recenter" type="button" title="Tagasi minu asukohta">◎</button>
@@ -516,7 +516,7 @@
         poiToast: $("poiToast"), gpsCta: $("gpsCta"), gpsCtaText: $("gpsCtaText"),
         startGpsDirectBtn: $("startGpsDirectBtn"), startNetGpsBtn: $("startNetGpsBtn"),
         hideCtaBtn: $("hideCtaBtn"), poiMenuBtn: $("poiMenuBtn"), autoZoomBtn: $("autoZoomBtn"),
-        orientBtn: $("orientBtn"), baseMapBtn: $("baseMapBtn"),
+        orientBtn: $("orientBtn"), baseMapBtn: $("baseMapBtn"), mapCredit: $("mapCredit"),
         offrouteBanner: $("offrouteBanner"), recalcBtn: $("recalcBtn"),
         recenterBtn: $("recenterBtn"), zoomInBtn: $("zoomInBtn"), zoomOutBtn: $("zoomOutBtn"),
         speedVal: $("speedVal"), remDistVal: $("remDistVal"), etaVal: $("etaVal"),
@@ -560,6 +560,119 @@
         }
       ];
 
+      const BASE_MAP_ORDER = ["esri_streets", "maaamet", "osm_detail", "hybrid", "osm_vector"];
+
+      const BASE_MAPS = {
+        esri_streets: {
+          id: "esri_streets",
+          label: "ALUS: LINNAKAART",
+          shortStatus: "Kaart: Esri/HERE",
+          credit: "© Esri, HERE, Garmin, OSM",
+          maxZoom: 19,
+          invertNight: true,
+          useVectorOverlay: false,
+          layers: [
+            {
+              id: "esri_street",
+              maxZoom: 19,
+              url: (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${z}/${y}/${x}`,
+              fallbackUrl: (z, x, y) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`
+            }
+          ]
+        },
+        maaamet: {
+          id: "maaamet",
+          label: "ALUS: EESTI ETAK",
+          shortStatus: "Kaart: Maa- ja Ruumiamet",
+          credit: "© Maa- ja Ruumiamet · OSM",
+          maxZoom: 18,
+          invertNight: true,
+          useVectorOverlay: false,
+          layers: [
+            {
+              id: "maaamet_kaart",
+              maxZoom: 18,
+              url: (z, x, y) => {
+                if (z < 7 || !isTileInEstonia(z, x, y)) {
+                  return `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+                }
+                const tmsY = (Math.pow(2, z) - 1) - y;
+                return `https://tiles.maaamet.ee/tm/tms/1.0.0/kaart@GMC/${z}/${x}/${tmsY}.png`;
+              },
+              fallbackUrl: (z, x, y) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`
+            }
+          ]
+        },
+        osm_detail: {
+          id: "osm_detail",
+          label: "ALUS: OSM TÄNAVAD",
+          shortStatus: "Kaart: OSM HD",
+          credit: "© OpenStreetMap · OSM-FR",
+          maxZoom: 20,
+          invertNight: true,
+          useVectorOverlay: false,
+          layers: [
+            {
+              id: "osm_fr",
+              maxZoom: 20,
+              url: (z, x, y) => {
+                const sub = ["a", "b", "c"][Math.abs(x + y) % 3];
+                return `https://${sub}.tile.openstreetmap.fr/osmfr/${z}/${x}/${y}.png`;
+              },
+              fallbackUrl: (z, x, y) => z <= 19 ? `https://tile.openstreetmap.org/${z}/${x}/${y}.png` : null
+            }
+          ]
+        },
+        hybrid: {
+          id: "hybrid",
+          label: "ALUS: HÜBRIID",
+          shortStatus: "Kaart: Satelliit + Tänavad",
+          credit: "© Esri, HERE, Garmin, OSM",
+          maxZoom: 19,
+          invertNight: false,
+          useVectorOverlay: false,
+          layers: [
+            {
+              id: "esri_imagery",
+              maxZoom: 19,
+              url: (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
+              fallbackUrl: null
+            },
+            {
+              id: "esri_roads",
+              maxZoom: 19,
+              overlay: true,
+              url: (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/${z}/${y}/${x}`,
+              fallbackUrl: null
+            },
+            {
+              id: "esri_places",
+              maxZoom: 19,
+              overlay: true,
+              url: (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/${z}/${y}/${x}`,
+              fallbackUrl: null
+            }
+          ]
+        },
+        osm_vector: {
+          id: "osm_vector",
+          label: "ALUS: OSM + TEED",
+          shortStatus: "Teed: OSM+Overpass",
+          credit: "© OpenStreetMap · Overpass",
+          maxZoom: 19,
+          invertNight: true,
+          useVectorOverlay: true,
+          layers: [
+            {
+              id: "osm_std",
+              maxZoom: 19,
+              url: (z, x, y) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`,
+              fallbackUrl: null
+            }
+          ]
+        }
+      };
+
       const OVERPASS_ENDPOINTS = [
         "https://overpass-api.de/api/interpreter",
         "https://overpass.private.coffee/api/interpreter",
@@ -567,7 +680,7 @@
       ];
 
       const tileCache = new Map();
-      const MAX_TILES = 140;
+      const MAX_TILES = 260;
       const LONG_PRESS_MS = 600;
       const LONG_PRESS_VISUAL_DELAY_MS = 130;
       let toastTimer = null;
@@ -578,7 +691,7 @@
       const state = {
         mode: "route",
         orientMode: "heading",
-        baseMapMode: "both",
+        baseMapMode: "esri_streets",
         autoZoom: true,
         followGps: true,
         viewCenter: null,
@@ -586,10 +699,10 @@
         soundOn: true,
         dayMode: false,
         wakeLock: null,
-        zoomLevels: [200, 400, 600, 1000, 2000, 5000, 10000, 25000, 50000, 100000],
+        zoomLevels: [100, 175, 300, 500, 800, 1500, 3000, 6000, 15000, 40000, 100000],
         zoomIndex: 1,
-        radarRadiusM: 250,
-        targetRadiusM: 250,
+        radarRadiusM: 175,
+        targetRadiusM: 175,
         currentTileZ: null,
         canvasW: 0,
         canvasH: 0,
@@ -734,20 +847,20 @@
       function computeAutoZoomTarget() {
         const kmh = state.gps.smoothSpeedKmh || 0;
         let target;
-        if (kmh <= 15) target = 250;
-        else if (kmh <= 45) target = 250 + ((kmh - 15) / 30) * 150;
-        else if (kmh <= 70) target = 400 + ((kmh - 45) / 25) * 450;
-        else if (kmh <= 95) target = 850 + ((kmh - 70) / 25) * 550;
-        else if (kmh <= 120) target = 1400 + ((kmh - 95) / 25) * 600;
+        if (kmh <= 15) target = 150;
+        else if (kmh <= 45) target = 150 + ((kmh - 15) / 30) * 150;
+        else if (kmh <= 70) target = 300 + ((kmh - 45) / 25) * 450;
+        else if (kmh <= 95) target = 750 + ((kmh - 70) / 25) * 600;
+        else if (kmh <= 120) target = 1350 + ((kmh - 95) / 25) * 650;
         else target = 2000;
 
         if (state.mode === "route" && state.route && !state.offRoute && Number.isFinite(state.distToNextTurnM)) {
           const d = state.distToNextTurnM;
-          if (d <= 150) target = Math.min(target, 200);
-          else if (d <= 350) target = Math.min(target, 200 + ((d - 150) / 200) * 100);
-          else if (d <= 600) target = Math.min(target, 300 + ((d - 350) / 250) * 100);
+          if (d <= 150) target = Math.min(target, 140);
+          else if (d <= 350) target = Math.min(target, 140 + ((d - 150) / 200) * 110);
+          else if (d <= 600) target = Math.min(target, 250 + ((d - 350) / 250) * 150);
         }
-        return Math.round(Math.max(200, Math.min(2000, target)));
+        return Math.round(Math.max(120, Math.min(2000, target)));
       }
 
       function updateScaleBadge() {
@@ -774,7 +887,7 @@
       }
 
       function setManualRadius(radiusM, skipRoadFetch) {
-        const clamped = Math.max(200, Math.min(100000, radiusM));
+        const clamped = Math.max(75, Math.min(100000, radiusM));
         state.targetRadiusM = clamped;
         state.zoomIndex = findNearestZoomIndex(clamped);
         setAutoZoomMode(false);
@@ -782,12 +895,11 @@
         if (state.pois.activeCatId) {
           fetchPois(false);
         }
-        if (!skipRoadFetch && clamped <= 5000) {
+        const bm = getActiveBaseMap();
+        if (!skipRoadFetch && bm.useVectorOverlay && clamped <= 5000) {
           fetchNearbyRoads(false);
-        } else if (clamped > 5000) {
-          el.roadsStatus.textContent = state.pois.activeCatId
-            ? `POI: ${countPoisInCircle()}`
-            : "Teed: OSM";
+        } else if (!state.pois.activeCatId) {
+          el.roadsStatus.textContent = bm.shortStatus;
         }
       }
 
@@ -1483,7 +1595,7 @@
 
           if (panState.lastPinchDist > 10 && dist > 10) {
             const ratio = panState.lastPinchDist / dist;
-            const nextR = Math.max(200, Math.min(100000, state.radarRadiusM * ratio));
+            const nextR = Math.max(75, Math.min(100000, state.radarRadiusM * ratio));
             state.radarRadiusM = nextR;
             state.targetRadiusM = nextR;
             state.zoomIndex = findNearestZoomIndex(nextR);
@@ -1839,29 +1951,87 @@
         });
       }
 
-      /* ===================== VABAVARALISED OSM ALUSKAARDI PLAADID ===================== */
+      /* ===================== ALUSKAARDID JA TÄNAVATÄPSUSEGA KAARDIPLAADID ===================== */
 
-      function getTileImage(z, tx, ty) {
+      function getActiveBaseMap() {
+        return BASE_MAPS[state.baseMapMode] || BASE_MAPS.esri_streets;
+      }
+
+      function isTileInEstonia(z, tx, ty) {
+        const nw = tileXYToLatLon(tx, ty, z);
+        const se = tileXYToLatLon(tx + 1, ty + 1, z);
+        if (!nw || !se) return false;
+        return se.lat <= 59.95 && nw.lat >= 57.45 && se.lon >= 21.5 && nw.lon <= 28.3;
+      }
+
+      function applyBaseMapMode(modeId, saveToStorage) {
+        const validId = BASE_MAPS[modeId] ? modeId : "esri_streets";
+        const cfg = BASE_MAPS[validId];
+        state.baseMapMode = validId;
+        state.currentTileZ = null;
+        el.baseMapBtn.textContent = cfg.label;
+        if (el.mapCredit) el.mapCredit.textContent = cfg.credit;
+        if (!state.pois.activeCatId) {
+          el.roadsStatus.textContent = cfg.shortStatus;
+        }
+        if (saveToStorage) {
+          try { localStorage.setItem("motonav_basemap", validId); } catch (_) {}
+        }
+        if (cfg.useVectorOverlay && hasValidGps()) {
+          fetchNearbyRoads(false);
+        }
+        state.needsRedraw = true;
+      }
+
+      function peekCachedTile(layerCfg, z, tx, ty) {
+        if (z < 0 || z > (layerCfg.maxZoom || 19)) return null;
+        const maxT = Math.pow(2, z);
+        const wrapX = ((tx % maxT) + maxT) % maxT;
+        if (ty < 0 || ty >= maxT) return null;
+        const key = `${layerCfg.id}/${z}/${wrapX}/${ty}`;
+        return tileCache.get(key) || null;
+      }
+
+      function getTileImage(layerCfg, z, tx, ty) {
+        if (z < 0 || z > (layerCfg.maxZoom || 19)) return null;
         const maxT = Math.pow(2, z);
         const wrapX = ((tx % maxT) + maxT) % maxT;
         if (ty < 0 || ty >= maxT) return null;
 
-        const key = `osm/${z}/${wrapX}/${ty}`;
+        const key = `${layerCfg.id}/${z}/${wrapX}/${ty}`;
         const existing = tileCache.get(key);
-        if (existing) return existing;
+        if (existing) {
+          // LRU värskendus
+          tileCache.delete(key);
+          tileCache.set(key, existing);
+          return existing;
+        }
 
         if (tileCache.size >= MAX_TILES) {
           const firstKey = tileCache.keys().next().value;
           tileCache.delete(firstKey);
         }
 
-        const entry = { img: new Image(), ready: false, failed: false };
+        const primaryUrl = layerCfg.url(z, wrapX, ty);
+        if (!primaryUrl) return null;
+
+        const entry = { img: new Image(), ready: false, failed: false, triedFallback: false };
         entry.img.onload = () => {
           entry.ready = true;
           state.needsRedraw = true;
         };
-        entry.img.onerror = () => { entry.failed = true; };
-        entry.img.src = `https://tile.openstreetmap.org/${z}/${wrapX}/${ty}.png`;
+        entry.img.onerror = () => {
+          if (!entry.triedFallback && typeof layerCfg.fallbackUrl === "function") {
+            const fbUrl = layerCfg.fallbackUrl(z, wrapX, ty);
+            if (fbUrl && fbUrl !== primaryUrl) {
+              entry.triedFallback = true;
+              entry.img.src = fbUrl;
+              return;
+            }
+          }
+          entry.failed = true;
+        };
+        entry.img.src = primaryUrl;
         tileCache.set(key, entry);
         return entry;
       }
@@ -1869,13 +2039,18 @@
       /* ===================== KÕRVALTEED (KIIRE OVERPASS VEKTORKIHT) ===================== */
 
       async function fetchNearbyRoads(force) {
+        const bm = getActiveBaseMap();
+        if (!force && !bm.useVectorOverlay) {
+          if (!state.pois.activeCatId) el.roadsStatus.textContent = bm.shortStatus;
+          return;
+        }
         const center = getMapCenter();
         if (!center) return;
         const effectiveRadius = Math.max(state.radarRadiusM, state.targetRadiusM);
         if (!force && effectiveRadius > 5500) {
           el.roadsStatus.textContent = state.pois.activeCatId
             ? `POI: ${countPoisInCircle()}`
-            : "Teed: OSM";
+            : bm.shortStatus;
           return;
         }
 
@@ -2872,10 +3047,11 @@
 
         if (center) {
           const cosLat = Math.cos(toRad(center.lat));
-
-          const exactZ = Math.log2(156543.03392 * cosLat * pxPerM);
-          if (state.currentTileZ === null || Math.abs(exactZ - state.currentTileZ) > 0.62) {
-            state.currentTileZ = Math.max(6, Math.min(17, Math.round(exactZ)));
+          const bm = getActiveBaseMap();
+          const dprBoost = Math.min(0.65, Math.log2(Math.max(1, window.devicePixelRatio || 1)) * 0.5);
+          const exactZ = Math.log2(156543.03392 * cosLat * pxPerM) + dprBoost + 0.25;
+          if (state.currentTileZ === null || Math.abs(exactZ - state.currentTileZ) > 0.42 || state.currentTileZ > bm.maxZoom) {
+            state.currentTileZ = Math.max(6, Math.min(bm.maxZoom, Math.round(exactZ)));
           }
           const z = state.currentTileZ;
           const tileSizePx = (40075016.68557849 * cosLat / Math.pow(2, z)) * pxPerM;
@@ -2893,28 +3069,70 @@
           ctx.translate(cx, cy);
           ctx.rotate(-hdgRad);
 
-          // A) VABAVARALINE OPENSTREETMAP ALUSKAART
-          if (state.baseMapMode === "both" || state.baseMapMode === "osm") {
+          // A) TÄNAVATÄPSUSEGA ALUSKAARDID (LINNAKAART / EESTI ETAK / OSM HD / HÜBRIID)
+          if (bm.layers && bm.layers.length > 0) {
             const maxReachPx = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy)) + tileSizePx;
-            const spanTiles = Math.min(4, Math.ceil(maxReachPx / tileSizePx));
+            const spanTiles = Math.min(5, Math.ceil(maxReachPx / tileSizePx));
             const baseTx = Math.floor(centerTile.x);
             const baseTy = Math.floor(centerTile.y);
 
-            const hasVectorOverlay = state.baseMapMode === "both" && state.roads.ways.length > 0 && state.radarRadiusM <= 6000;
-            ctx.globalAlpha = hasVectorOverlay ? (state.dayMode ? 0.48 : 0.46) : (state.dayMode ? 0.82 : 0.78);
-            if (!state.dayMode && typeof ctx.filter === "string") {
-              ctx.filter = "invert(100%) hue-rotate(180deg) brightness(78%) contrast(105%) saturate(25%)";
-            }
+            const hasVectorOverlay = bm.useVectorOverlay && state.roads.ways.length > 0 && state.radarRadiusM <= 6000;
+            const baseAlpha = hasVectorOverlay
+              ? (state.dayMode ? 0.78 : 0.74)
+              : (state.dayMode ? 0.96 : 0.90);
 
-            for (let dxT = -spanTiles; dxT <= spanTiles; dxT++) {
-              for (let dyT = -spanTiles; dyT <= spanTiles; dyT++) {
-                const tx = baseTx + dxT;
-                const ty = baseTy + dyT;
-                const entry = getTileImage(z, tx, ty);
-                if (entry && entry.ready) {
-                  const drawX = (tx - centerTile.x) * tileSizePx;
-                  const drawY = (ty - centerTile.y) * tileSizePx;
-                  ctx.drawImage(entry.img, drawX, drawY, tileSizePx + 0.8, tileSizePx + 0.8);
+            for (let li = 0; li < bm.layers.length; li++) {
+              const layerCfg = bm.layers[li];
+              const layerZ = Math.min(z, layerCfg.maxZoom || bm.maxZoom);
+              const layerTileSizePx = (40075016.68557849 * cosLat / Math.pow(2, layerZ)) * pxPerM;
+              const layerCenterTile = layerZ === z ? centerTile : latLonToTileXY(center.lat, center.lon, layerZ);
+              const lBaseTx = Math.floor(layerCenterTile.x);
+              const lBaseTy = Math.floor(layerCenterTile.y);
+              const lSpan = layerZ === z ? spanTiles : Math.min(5, Math.ceil(maxReachPx / layerTileSizePx));
+
+              ctx.globalAlpha = layerCfg.overlay ? 0.95 : baseAlpha;
+              if (!state.dayMode && typeof ctx.filter === "string") {
+                if (bm.invertNight) {
+                  ctx.filter = "invert(100%) hue-rotate(180deg) brightness(88%) contrast(108%) saturate(55%)";
+                } else if (!layerCfg.overlay) {
+                  ctx.filter = "brightness(80%) contrast(108%)";
+                } else {
+                  ctx.filter = "none";
+                }
+              }
+
+              for (let dxT = -lSpan; dxT <= lSpan; dxT++) {
+                for (let dyT = -lSpan; dyT <= lSpan; dyT++) {
+                  const tx = lBaseTx + dxT;
+                  const ty = lBaseTy + dyT;
+                  const drawX = (tx - layerCenterTile.x) * layerTileSizePx;
+                  const drawY = (ty - layerCenterTile.y) * layerTileSizePx;
+                  const entry = getTileImage(layerCfg, layerZ, tx, ty);
+                  if (entry && entry.ready) {
+                    ctx.drawImage(entry.img, drawX, drawY, layerTileSizePx + 0.8, layerTileSizePx + 0.8);
+                  } else if (!layerCfg.overlay) {
+                    // Sujuv vanemplaadi kohatäide, kuni teravam tänavaplaat laeb
+                    for (let dz = 1; dz <= 2; dz++) {
+                      const pz = layerZ - dz;
+                      if (pz < 4) break;
+                      const scale = Math.pow(2, dz);
+                      const ptx = Math.floor(tx / scale);
+                      const pty = Math.floor(ty / scale);
+                      const parent = peekCachedTile(layerCfg, pz, ptx, pty);
+                      if (parent && parent.ready && parent.img.naturalWidth > 0) {
+                        const subX = ((tx % scale) + scale) % scale;
+                        const subY = ((ty % scale) + scale) % scale;
+                        const sw = parent.img.naturalWidth / scale;
+                        const sh = parent.img.naturalHeight / scale;
+                        ctx.drawImage(
+                          parent.img,
+                          subX * sw, subY * sh, sw, sh,
+                          drawX, drawY, layerTileSizePx + 0.8, layerTileSizePx + 0.8
+                        );
+                        break;
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -2922,9 +3140,9 @@
             ctx.globalAlpha = 1.0;
           }
 
-          // B) OVERPASS VEKTOR-KÕRVALTEED PEENE HALLI JOONEGA
+          // B) OVERPASS VEKTOR-KÕRVALTEED (AINULT OSM+TEED REŽIIMIS)
           if (
-            (state.baseMapMode === "both" || state.baseMapMode === "vector") &&
+            bm.useVectorOverlay &&
             state.roads.ways.length > 0 &&
             state.radarRadiusM <= 6000
           ) {
@@ -3327,11 +3545,12 @@
       });
 
       el.baseMapBtn.addEventListener("click", () => {
-        const order = ["both", "vector", "osm"];
-        const labels = { both: "ALUS: OSM+TEED", vector: "ALUS: TEED", osm: "ALUS: OSM" };
-        state.baseMapMode = order[(order.indexOf(state.baseMapMode) + 1) % order.length];
-        el.baseMapBtn.textContent = labels[state.baseMapMode];
-        state.needsRedraw = true;
+        const curIdx = BASE_MAP_ORDER.indexOf(state.baseMapMode);
+        const nextId = BASE_MAP_ORDER[(curIdx + 1) % BASE_MAP_ORDER.length];
+        applyBaseMapMode(nextId, true);
+        const cfg = getActiveBaseMap();
+        addLog(`Aluskaart: ${cfg.label}`);
+        showToast(cfg.shortStatus, 1800);
       });
 
       el.searchBtn.addEventListener("click", searchDestination);
@@ -3401,6 +3620,12 @@
       window.addEventListener("resize", resizeCanvas);
 
       addLog(`Käivitamine (${window.location.protocol}//${window.location.host || "kohalik"})`);
+      let savedBaseMap = "esri_streets";
+      try {
+        const stored = localStorage.getItem("motonav_basemap");
+        if (stored && BASE_MAPS[stored]) savedBaseMap = stored;
+      } catch (_) {}
+      applyBaseMapMode(savedBaseMap, false);
       renderManeuverIcon("straight");
       resizeCanvas();
       updateScaleBadge();
