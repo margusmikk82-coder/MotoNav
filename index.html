@@ -118,7 +118,7 @@
     .result-item:last-child { border-bottom: none; }
     .result-item small {
       display: block; color: var(--muted); margin-top: 3px; font-size: 12px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      line-height: 1.3; font-family: inherit;
     }
 
     .main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
@@ -363,7 +363,7 @@
 
     <div class="search-wrap">
       <div class="search-row">
-        <input id="searchInput" class="search-input" type="search" placeholder="Kohanimi või MGRS (nt 35V NF 24105 81230)" autocomplete="off" />
+        <input id="searchInput" class="search-input" type="search" placeholder="Sisesta aadress või kohanimi (alates 3 tähest)" autocomplete="off" />
         <button id="searchBtn" class="btn-primary" type="button">OTSI</button>
         <button id="clearBtn" class="icon-btn" type="button" style="display:none;">✕</button>
       </div>
@@ -796,9 +796,18 @@
           return fetch(url, options || {});
         }
         const ctrl = new AbortController();
+        const extSignal = options && options.signal;
+        const onExtAbort = () => { try { ctrl.abort(); } catch (_) {} };
+        if (extSignal) {
+          if (extSignal.aborted) ctrl.abort();
+          else extSignal.addEventListener("abort", onExtAbort, { once: true });
+        }
         const timer = setTimeout(() => ctrl.abort(), timeoutMs || 9000);
         const opts = Object.assign({}, options || {}, { signal: ctrl.signal });
-        return fetch(url, opts).finally(() => clearTimeout(timer));
+        return fetch(url, opts).finally(() => {
+          clearTimeout(timer);
+          if (extSignal) extSignal.removeEventListener("abort", onExtAbort);
+        });
       }
 
       function raceOverpassEndpoints(endpoints, body, timeoutMs, shouldCancel) {
@@ -1846,9 +1855,9 @@
           const btn = document.createElement("button");
           btn.type = "button";
           btn.className = "poi-item";
-          const mgrs = latLonToMGRS(p.lat, p.lon);
+          const addrSub = p.sub || cat.label;
           btn.innerHTML =
-            `<div><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(mgrs)}${p.sub ? " · " + escapeHtml(p.sub) : ""}</small></div>` +
+            `<div><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(addrSub)}</small></div>` +
             `<span class="poi-item-dist">${formatDistance(entry.dist)}</span>`;
           btn.addEventListener("click", () => {
             el.poiModal.classList.remove("open");
@@ -1924,7 +1933,8 @@
               const nameMatch = name.toLowerCase().indexOf(q.toLowerCase()) !== -1;
               if (!valMatch && !nameMatch) continue;
 
-              const sub = [p.city || p.town || p.village || p.county, p.street].filter(Boolean).join(", ");
+              const stLine = p.street ? (p.housenumber ? `${p.street} ${p.housenumber}` : p.street) : "";
+              const sub = [stLine, p.city || p.town || p.village || p.county].filter(Boolean).join(", ");
               const item = {
                 id: `ph_${p.osm_id || i}_${Math.round(c.lat * 10000)}`,
                 lat: c.lat, lon: c.lon, name, sub,
@@ -1967,9 +1977,12 @@
 
           const tags = elem.tags || {};
           const name = tags.name || tags.brand || tags.operator || cat.label;
-          const sub = tags.brand && tags.brand !== name
-            ? tags.brand
-            : (tags["addr:city"] || tags["addr:street"] || tags.tourism || tags.amenity || "");
+          const ovStreet = tags["addr:street"]
+            ? (tags["addr:housenumber"] ? `${tags["addr:street"]} ${tags["addr:housenumber"]}` : tags["addr:street"])
+            : (tags["addr:full"] || "");
+          const ovCity = tags["addr:city"] || tags["addr:town"] || tags["addr:village"] || tags["addr:municipality"] || "";
+          const ovAddr = [ovStreet, ovCity].filter(Boolean).join(", ");
+          const sub = ovAddr || (tags.brand && tags.brand !== name ? tags.brand : "");
 
           out.push({
             id: `ov_${elem.type}_${elem.id}`,
@@ -3008,16 +3021,296 @@
         }
       }
 
-      async function searchDestination() {
+      let searchSuggestTimer = null;
+      let searchAbortCtrl = null;
+      let searchSeq = 0;
+      const searchSuggestCache = new Map();
+      const MAX_SEARCH_CACHE = 60;
+
+      function formatInAdsAddress(a) {
+        if (!a) return null;
+        const c = toValidCoord(a.viitepunkt_b, a.viitepunkt_l);
+        if (!c) return null;
+        const ipikk = String(a.ipikkaadress || "").trim();
+        const pikk = String(a.pikkaadress || "").trim();
+        const shortTxt = String(a.aadresstekst || "").trim();
+        const nimi = String(a.nimi || "").trim();
+        const postcode = String(a.sihtnumber || "").trim();
+
+        const parts = ipikk
+          ? ipikk.split(",").map((s) => s.trim()).filter(Boolean)
+          : pikk.split(",").map((s) => s.trim()).filter(Boolean).reverse();
+
+        let title = shortTxt || parts[0] || "";
+        if (nimi && title && nimi.toLowerCase() !== title.toLowerCase() && !title.toLowerCase().includes(nimi.toLowerCase())) {
+          title = `${nimi} (${title})`;
+        }
+        if (!title) return null;
+
+        const detailParts = [];
+        const pushUnique = (val) => {
+          if (!val) return;
+          const v = String(val).trim();
+          if (!v) return;
+          const low = v.toLowerCase();
+          if (low === title.toLowerCase()) return;
+          if (detailParts.some((x) => x.toLowerCase() === low)) return;
+          detailParts.push(v);
+        };
+
+        for (let i = 0; i < parts.length; i++) {
+          if (shortTxt && parts[i].toLowerCase() === shortTxt.toLowerCase()) continue;
+          pushUnique(parts[i]);
+        }
+        if (postcode) pushUnique(postcode);
+        pushUnique("Eesti");
+
+        const sub = detailParts.join(", ");
+        const fullAddress = ipikk || (sub ? `${title}, ${detailParts.slice(0, 2).join(", ")}` : title);
+        return { lat: c.lat, lon: c.lon, title, sub: sub || fullAddress, fullAddress, priority: 2 };
+      }
+
+      function formatPhotonAddress(p, fallbackQ) {
+        const streetLine = p.street
+          ? (p.housenumber ? `${p.street} ${p.housenumber}` : p.street)
+          : "";
+        const settlement = p.city || p.town || p.village || p.locality || "";
+        const district = p.district && p.district !== settlement ? p.district : "";
+        const region = p.county || p.state || "";
+        const country = p.country || "";
+
+        let title = "";
+        if (
+          p.name &&
+          streetLine &&
+          p.name.toLowerCase() !== streetLine.toLowerCase() &&
+          p.name.toLowerCase() !== String(p.street || "").toLowerCase()
+        ) {
+          title = `${p.name} (${streetLine})`;
+        } else if (streetLine) {
+          title = streetLine;
+        } else if (p.name) {
+          title = p.name;
+        } else {
+          title = settlement || fallbackQ;
+        }
+
+        const detailParts = [];
+        const pushUnique = (val) => {
+          if (!val) return;
+          const v = String(val).trim();
+          if (!v) return;
+          const low = v.toLowerCase();
+          if (low === title.toLowerCase()) return;
+          if (detailParts.some((x) => x.toLowerCase() === low)) return;
+          detailParts.push(v);
+        };
+
+        if (streetLine && title !== streetLine && !title.toLowerCase().includes(streetLine.toLowerCase())) {
+          pushUnique(streetLine);
+        }
+        pushUnique(district);
+        pushUnique(settlement);
+        if (region && region.toLowerCase() !== settlement.toLowerCase()) pushUnique(region);
+        if (p.postcode) pushUnique(p.postcode);
+        pushUnique(country);
+
+        const sub = detailParts.join(", ");
+        const fullAddress = settlement && !title.toLowerCase().includes(settlement.toLowerCase())
+          ? `${title}, ${settlement}`
+          : title;
+        return { title, sub: sub || title, fullAddress };
+      }
+
+      function formatNominatimAddress(item, fallbackQ) {
+        const a = item.address || {};
+        const road = a.road || a.pedestrian || a.footway || a.cycleway || a.path || "";
+        const streetLine = road ? (a.house_number ? `${road} ${a.house_number}` : road) : "";
+        const settlement = a.city || a.town || a.village || a.hamlet || a.municipality || "";
+        const district = a.suburb || a.city_district || a.neighbourhood || "";
+        const region = a.county || a.state || "";
+        const country = a.country || "";
+        const rawName = (item.name && item.name.trim()) || "";
+
+        let title = "";
+        if (
+          rawName &&
+          streetLine &&
+          rawName.toLowerCase() !== streetLine.toLowerCase() &&
+          rawName.toLowerCase() !== road.toLowerCase()
+        ) {
+          title = `${rawName} (${streetLine})`;
+        } else if (streetLine) {
+          title = streetLine;
+        } else if (rawName) {
+          title = rawName;
+        } else if (item.display_name) {
+          title = item.display_name.split(",").slice(0, 2).map((s) => s.trim()).join(", ");
+        } else {
+          title = fallbackQ;
+        }
+
+        const detailParts = [];
+        const pushUnique = (val) => {
+          if (!val) return;
+          const v = String(val).trim();
+          if (!v) return;
+          const low = v.toLowerCase();
+          if (low === title.toLowerCase()) return;
+          if (detailParts.some((x) => x.toLowerCase() === low)) return;
+          detailParts.push(v);
+        };
+
+        if (streetLine && title !== streetLine && !title.toLowerCase().includes(streetLine.toLowerCase())) {
+          pushUnique(streetLine);
+        }
+        pushUnique(district);
+        pushUnique(settlement);
+        if (region && region.toLowerCase() !== settlement.toLowerCase()) pushUnique(region);
+        if (a.postcode) pushUnique(a.postcode);
+        pushUnique(country);
+
+        const sub = detailParts.length ? detailParts.join(", ") : (item.display_name || title);
+        const fullAddress = settlement && !title.toLowerCase().includes(settlement.toLowerCase())
+          ? `${title}, ${settlement}`
+          : title;
+        return { title, sub, fullAddress };
+      }
+
+      function dedupeAddressItems(items) {
+        const out = [];
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i];
+          if (!it || !it.title) continue;
+          const normTitle = it.title.toLowerCase().replace(/\s+/g, " ").trim();
+          const normFull = String(it.fullAddress || it.title).toLowerCase().replace(/\s+/g, " ").trim();
+          let dup = false;
+          for (let j = 0; j < out.length; j++) {
+            const ex = out[j];
+            const exFull = String(ex.fullAddress || ex.title).toLowerCase().replace(/\s+/g, " ").trim();
+            if (exFull === normFull) { dup = true; break; }
+            const exTitle = ex.title.toLowerCase().replace(/\s+/g, " ").trim();
+            if (exTitle === normTitle && distanceMeters(ex, it) < 90) { dup = true; break; }
+          }
+          if (!dup) out.push(it);
+          if (out.length >= 8) break;
+        }
+        return out;
+      }
+
+      function renderSearchResults(items, emptyMessage) {
+        if (!items || items.length === 0) {
+          if (emptyMessage) {
+            el.results.innerHTML = `<div class="result-item">${escapeHtml(emptyMessage)}</div>`;
+            el.results.classList.add("open");
+          } else {
+            el.results.classList.remove("open");
+          }
+          return;
+        }
+
+        el.results.innerHTML = "";
+        items.forEach((it) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "result-item";
+          btn.innerHTML = `<strong>${escapeHtml(it.title)}</strong><small>${escapeHtml(it.sub)}</small>`;
+          btn.addEventListener("click", () => {
+            if (searchSuggestTimer !== null) {
+              clearTimeout(searchSuggestTimer);
+              searchSuggestTimer = null;
+            }
+            setDestination({
+              lat: it.lat,
+              lon: it.lon,
+              name: it.fullAddress || it.title,
+              isMgrs: Boolean(it.isMgrs)
+            });
+          });
+          el.results.appendChild(btn);
+        });
+        el.results.classList.add("open");
+      }
+
+      async function fetchAddressesFromInAds(q, signal, timeoutMs) {
+        try {
+          const url = `https://inaadress.maaamet.ee/inaadress/gazetteer?address=${encodeURIComponent(q)}&results=6&unik=1&appartment=0`;
+          const res = await fetchWithTimeout(url, { method: "GET", signal }, timeoutMs);
+          if (!res.ok) return [];
+          const data = await res.json();
+          if (!data || !Array.isArray(data.addresses)) return [];
+          return data.addresses.map(formatInAdsAddress).filter(Boolean);
+        } catch (_) {
+          return [];
+        }
+      }
+
+      async function fetchAddressesFromPhoton(q, signal, timeoutMs) {
+        try {
+          const bias = getMapCenter() || { lat: 58.85, lon: 25.55 };
+          const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=${bias.lat.toFixed(4)}&lon=${bias.lon.toFixed(4)}&location_bias_scale=0.35&limit=8`;
+          const res = await fetchWithTimeout(url, { method: "GET", signal }, timeoutMs);
+          if (!res.ok) return [];
+          const data = await res.json();
+          if (!data || !Array.isArray(data.features)) return [];
+          return data.features.map((f) => {
+            const coords = f.geometry && f.geometry.coordinates;
+            if (!coords || coords.length < 2) return null;
+            const c = toValidCoord(coords[1], coords[0]);
+            if (!c) return null;
+            const fmt = formatPhotonAddress(f.properties || {}, q);
+            return { lat: c.lat, lon: c.lon, title: fmt.title, sub: fmt.sub, fullAddress: fmt.fullAddress, priority: 1 };
+          }).filter(Boolean);
+        } catch (_) {
+          return [];
+        }
+      }
+
+      async function fetchAddressesFromNominatim(q, signal, timeoutMs) {
+        try {
+          const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&accept-language=et&viewbox=21.5,59.95,28.3,57.45&q=${encodeURIComponent(q)}`;
+          const res = await fetchWithTimeout(url, { method: "GET", signal }, timeoutMs);
+          if (!res.ok) return [];
+          const data = await res.json();
+          if (!Array.isArray(data)) return [];
+          return data.map((item) => {
+            const c = toValidCoord(item.lat, item.lon);
+            if (!c) return null;
+            const fmt = formatNominatimAddress(item, q);
+            return { lat: c.lat, lon: c.lon, title: fmt.title, sub: fmt.sub, fullAddress: fmt.fullAddress, priority: 0 };
+          }).filter(Boolean);
+        } catch (_) {
+          return [];
+        }
+      }
+
+      async function searchDestination(opts) {
+        const isAutocomplete = Boolean(opts && opts.isAutocomplete);
         const q = el.searchInput.value.trim();
-        if (!q) return;
+        if (!q) {
+          el.results.classList.remove("open");
+          return;
+        }
+        if (isAutocomplete && q.length < 3) {
+          el.results.classList.remove("open");
+          return;
+        }
 
         if (looksLikeMGRS(q)) {
           const parsed = parseMGRS(q);
           if (parsed.error) {
-            el.results.innerHTML = `<div class="result-item"><strong>MGRS viga</strong><small>${escapeHtml(parsed.error)}</small></div>`;
-            el.results.classList.add("open");
-            addLog(`MGRS viga: ${parsed.error}`);
+            if (!isAutocomplete) {
+              el.results.innerHTML = `<div class="result-item"><strong>MGRS viga</strong><small>${escapeHtml(parsed.error)}</small></div>`;
+              el.results.classList.add("open");
+              addLog(`MGRS viga: ${parsed.error}`);
+            }
+            return;
+          }
+          if (isAutocomplete) {
+            renderSearchResults([{
+              lat: parsed.lat, lon: parsed.lon,
+              title: parsed.mgrs, sub: "MGRS koordinaat", fullAddress: parsed.mgrs, isMgrs: true
+            }]);
             return;
           }
           addLog(`MGRS sihtkoht: ${parsed.mgrs}`);
@@ -3025,71 +3318,88 @@
           return;
         }
 
-        el.searchBtn.disabled = true;
-        el.results.innerHTML = `<div class="result-item">Otsin «${escapeHtml(q)}»...</div>`;
-        el.results.classList.add("open");
-        addLog(`Otsin: ${q}`);
-
-        let items = [];
-        try {
-          const res = await fetchWithTimeout(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6`, {}, 6000);
-          if (res.ok) {
-            const data = await res.json();
-            if (data && Array.isArray(data.features)) {
-              items = data.features.map((f) => {
-                const coords = f.geometry && f.geometry.coordinates;
-                if (!coords || coords.length < 2) return null;
-                const c = toValidCoord(coords[1], coords[0]);
-                if (!c) return null;
-                const p = f.properties || {};
-                const parts = [p.name, p.city || p.town || p.village || p.county, p.country].filter(Boolean);
-                const title = p.name || parts[0] || q;
-                return { lat: c.lat, lon: c.lon, title, sub: parts.join(", ") };
-              }).filter(Boolean);
-            }
-          }
-        } catch (e) {
-          addLog(`Photon viga: ${e.message}`);
-        }
-
-        if (items.length === 0) {
-          try {
-            const res2 = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=json&limit=6&accept-language=et&q=${encodeURIComponent(q)}`, {}, 6000);
-            if (res2.ok) {
-              const data2 = await res2.json();
-              if (Array.isArray(data2)) {
-                items = data2.map((item) => {
-                  const c = toValidCoord(item.lat, item.lon);
-                  if (!c) return null;
-                  const title = item.display_name.split(",").slice(0, 2).join(",");
-                  return { lat: c.lat, lon: c.lon, title, sub: item.display_name };
-                }).filter(Boolean);
-              }
-            }
-          } catch (e2) {
-            addLog(`Nominatim viga: ${e2.message}`);
-          }
-        }
-
-        el.searchBtn.disabled = false;
-
-        if (items.length === 0) {
-          el.results.innerHTML = `<div class="result-item">Tulemusi ei leitud.<small>Võid sisestada ka MGRS-i, nt 35V NF 24105 81230</small></div>`;
+        const cacheKey = q.toLowerCase();
+        const cached = searchSuggestCache.get(cacheKey);
+        if (cached && cached.length > 0) {
+          renderSearchResults(cached);
           return;
         }
 
-        el.results.innerHTML = "";
-        items.forEach((it) => {
-          const mgrs = latLonToMGRS(it.lat, it.lon);
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "result-item";
-          btn.innerHTML = `<strong>${escapeHtml(it.title)}</strong><small>${escapeHtml(mgrs)} · ${escapeHtml(it.sub)}</small>`;
-          btn.addEventListener("click", () => {
-            setDestination({ lat: it.lat, lon: it.lon, name: it.title, isMgrs: false });
-          });
-          el.results.appendChild(btn);
-        });
+        if (searchAbortCtrl) {
+          try { searchAbortCtrl.abort(); } catch (_) {}
+        }
+        const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+        searchAbortCtrl = ctrl;
+        const mySeq = ++searchSeq;
+        const signal = ctrl ? ctrl.signal : undefined;
+
+        if (!isAutocomplete) {
+          el.searchBtn.disabled = true;
+          el.results.innerHTML = `<div class="result-item">Otsin «${escapeHtml(q)}»...</div>`;
+          el.results.classList.add("open");
+          addLog(`Otsin: ${q}`);
+        } else if (!el.results.classList.contains("open")) {
+          el.results.innerHTML = `<div class="result-item">Otsin aadresse...</div>`;
+          el.results.classList.add("open");
+        }
+
+        const timeoutMs = isAutocomplete ? 3500 : 5500;
+        const [inAdsItems, photonItems] = await Promise.all([
+          fetchAddressesFromInAds(q, signal, Math.min(2800, timeoutMs)),
+          fetchAddressesFromPhoton(q, signal, timeoutMs)
+        ]);
+        if (mySeq !== searchSeq) return;
+
+        let items = dedupeAddressItems([...inAdsItems, ...photonItems]);
+
+        if (items.length < 3) {
+          const nomItems = await fetchAddressesFromNominatim(q, signal, timeoutMs);
+          if (mySeq !== searchSeq) return;
+          items = dedupeAddressItems([...items, ...nomItems]);
+        }
+
+        if (!isAutocomplete) el.searchBtn.disabled = false;
+
+        if (items.length > 0) {
+          if (searchSuggestCache.size >= MAX_SEARCH_CACHE) {
+            const firstKey = searchSuggestCache.keys().next().value;
+            searchSuggestCache.delete(firstKey);
+          }
+          searchSuggestCache.set(cacheKey, items);
+        }
+
+        if (items.length === 0) {
+          renderSearchResults([], isAutocomplete ? "" : "Aadressi ei leitud. Täpsusta tänava nime või linna.");
+          return;
+        }
+
+        renderSearchResults(items);
+      }
+
+      function scheduleAddressAutocomplete() {
+        if (searchSuggestTimer !== null) {
+          clearTimeout(searchSuggestTimer);
+          searchSuggestTimer = null;
+        }
+        const q = el.searchInput.value.trim();
+        if (q.length < 3) {
+          if (searchAbortCtrl) {
+            try { searchAbortCtrl.abort(); } catch (_) {}
+            searchAbortCtrl = null;
+          }
+          searchSeq += 1;
+          el.results.classList.remove("open");
+          return;
+        }
+        const cached = searchSuggestCache.get(q.toLowerCase());
+        if (cached && cached.length > 0) {
+          renderSearchResults(cached);
+          return;
+        }
+        searchSuggestTimer = setTimeout(() => {
+          searchSuggestTimer = null;
+          searchDestination({ isAutocomplete: true });
+        }, 220);
       }
 
       /* ===================== OSRM MARSRUUT ===================== */
@@ -3259,7 +3569,7 @@
           el.turnDesc.textContent = `Otsesuund ${Math.round(brg)}°`;
           el.turnStreet.textContent = state.destination.isMgrs
             ? `MGRS ${state.destination.name}`
-            : `${state.destination.name} · ${latLonToMGRS(state.destination.lat, state.destination.lon)}`;
+            : state.destination.name;
           el.remDistVal.textContent = formatDistance(d);
           el.etaVal.textContent = "OTSE";
           renderManeuverIcon("compass");
@@ -4739,9 +5049,53 @@
         showToast(cfg.shortStatus, 1800);
       });
 
-      el.searchBtn.addEventListener("click", searchDestination);
-      el.searchInput.addEventListener("keydown", (e) => { if (e.key === "Enter") searchDestination(); });
+      el.searchBtn.addEventListener("click", () => {
+        if (searchSuggestTimer !== null) {
+          clearTimeout(searchSuggestTimer);
+          searchSuggestTimer = null;
+        }
+        searchDestination({ isAutocomplete: false });
+      });
+      el.searchInput.addEventListener("input", () => {
+        el.clearBtn.style.display = (el.searchInput.value.trim() || state.destination) ? "inline-block" : "none";
+        scheduleAddressAutocomplete();
+      });
+      el.searchInput.addEventListener("focus", () => {
+        const q = el.searchInput.value.trim();
+        if (q.length >= 3 && !el.results.classList.contains("open")) {
+          const cached = searchSuggestCache.get(q.toLowerCase());
+          if (cached && cached.length > 0) renderSearchResults(cached);
+        }
+      });
+      el.searchInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          if (searchSuggestTimer !== null) {
+            clearTimeout(searchSuggestTimer);
+            searchSuggestTimer = null;
+          }
+          searchDestination({ isAutocomplete: false });
+        } else if (e.key === "Escape") {
+          el.results.classList.remove("open");
+        }
+      });
+      document.addEventListener("click", (e) => {
+        if (!el.results.classList.contains("open")) return;
+        if (!e.target.closest(".search-wrap")) {
+          el.results.classList.remove("open");
+        }
+      });
       el.clearBtn.addEventListener("click", () => {
+        if (searchSuggestTimer !== null) {
+          clearTimeout(searchSuggestTimer);
+          searchSuggestTimer = null;
+        }
+        if (searchAbortCtrl) {
+          try { searchAbortCtrl.abort(); } catch (_) {}
+          searchAbortCtrl = null;
+        }
+        searchSeq += 1;
+        el.results.classList.remove("open");
         state.destination = null; state.route = null;
         state.riderProj = null; state.liveRiderProj = null;
         state.offRoute = false; state.offRouteHits = 0; state.offRouteSinceMs = 0;
