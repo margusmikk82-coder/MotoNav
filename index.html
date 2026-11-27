@@ -408,6 +408,7 @@
           <button id="poiMenuBtn" class="map-chip" type="button">HUVIPUNKTID</button>
           <button id="autoZoomBtn" class="map-chip active" type="button">SUUM: AUTO</button>
           <button id="orientBtn" class="map-chip" type="button">SUUND ÜLES</button>
+          <button id="view3dBtn" class="map-chip" type="button">VAADE: 2D</button>
           <button id="baseMapBtn" class="map-chip" type="button">ALUS: GRAAFIKA</button>
         </div>
 
@@ -516,7 +517,7 @@
         poiToast: $("poiToast"), gpsCta: $("gpsCta"), gpsCtaText: $("gpsCtaText"),
         startGpsDirectBtn: $("startGpsDirectBtn"), startNetGpsBtn: $("startNetGpsBtn"),
         hideCtaBtn: $("hideCtaBtn"), poiMenuBtn: $("poiMenuBtn"), autoZoomBtn: $("autoZoomBtn"),
-        orientBtn: $("orientBtn"), baseMapBtn: $("baseMapBtn"), mapCredit: $("mapCredit"),
+        orientBtn: $("orientBtn"), view3dBtn: $("view3dBtn"), baseMapBtn: $("baseMapBtn"), mapCredit: $("mapCredit"),
         offrouteBanner: $("offrouteBanner"), recalcBtn: $("recalcBtn"),
         recenterBtn: $("recenterBtn"), zoomInBtn: $("zoomInBtn"), zoomOutBtn: $("zoomOutBtn"),
         speedVal: $("speedVal"), remDistVal: $("remDistVal"), etaVal: $("etaVal"),
@@ -664,6 +665,9 @@
       const POI_CACHE_TTL_MS = 10 * 60 * 1000;
       const LONG_PRESS_MS = 600;
       const LONG_PRESS_VISUAL_DELAY_MS = 130;
+      const MAX_TILT_RAD = (50 * Math.PI) / 180;
+      let rasterOffCanvas = null;
+      let rasterOffCtx = null;
       let toastTimer = null;
 
       let overpassChain = Promise.resolve();
@@ -673,6 +677,8 @@
         mode: "route",
         orientMode: "heading",
         baseMapMode: "graphic",
+        view3d: false,
+        pitchFactor: 0,
         autoZoom: true,
         followGps: true,
         viewCenter: null,
@@ -1432,14 +1438,70 @@
 
       function getCurrentMapMetrics() {
         const w = state.canvasW, h = state.canvasH;
+        const p = state.pitchFactor || 0;
         const cx = w / 2;
-        const cy = h * 0.58;
-        const radiusPx = Math.max(60, Math.min(w * 0.44, cy - 36, h - cy - 18));
+        const cy = h * (0.58 + 0.14 * p);
+        const radiusPx = Math.max(60, Math.min(w * 0.44, h * 0.58 - 36, h * 0.42 - 18));
         const pxPerM = radiusPx / state.radarRadiusM;
-        return { cx, cy, radiusPx, pxPerM };
+        return { cx, cy, radiusPx, pxPerM, w, h, pitch: p };
       }
 
-      // Teisendab ekraanipuute (clientX, clientY) täpseks { lat, lon } koordinaadiks arvestades pöördenurka
+      function createMapCamera(metrics) {
+        const { cx, cy, w, h, pitch } = metrics;
+        const is3d = pitch > 0.004;
+        if (!is3d) {
+          return {
+            is3d: false,
+            pitch: 0,
+            cx, cy, w, h,
+            sinA: 0, cosA: 1, F: 1000,
+            horizonY: -1e6,
+            maxRy: 1e9,
+            minRy: -1e9,
+            projectRot: (rx, ry) => ({ sx: cx + rx, sy: cy + ry, k: 1 }),
+            unprojectScreen: (sx, sy) => ({ rx: sx - cx, ry: sy - cy })
+          };
+        }
+
+        const alpha = MAX_TILT_RAD * pitch;
+        const sinA = Math.sin(alpha);
+        const cosA = Math.cos(alpha);
+        const targetHorizonY = h * 0.08;
+        const F = Math.max(180, (cy - targetHorizonY) * Math.tan(MAX_TILT_RAD));
+        const actualHorizonY = cy - (F * cosA) / sinA;
+        const zNear = F * 0.22;
+        const maxRy = (F - zNear) / sinA;
+        const topFadeSy = Math.max(actualHorizonY + 26, h * 0.11);
+        const topDenom = cosA * F + (topFadeSy - cy) * sinA;
+        const rawMinRy = topDenom > 8 ? ((topFadeSy - cy) * F) / topDenom : -3500;
+        const minRy = Math.max(-4500, rawMinRy);
+
+        return {
+          is3d: true,
+          pitch,
+          cx, cy, w, h,
+          sinA, cosA, F,
+          horizonY: actualHorizonY,
+          maxRy,
+          minRy,
+          projectRot: (rx, ry) => {
+            const zCam = F - ry * sinA;
+            const k = F / zCam;
+            return { sx: cx + rx * k, sy: cy + ry * cosA * k, k };
+          },
+          unprojectScreen: (sx, sy) => {
+            const dsy = sy - cy;
+            const denom = cosA * F + dsy * sinA;
+            if (denom <= 12) return null;
+            const ry = (dsy * F) / denom;
+            const zCam = F - ry * sinA;
+            const rx = (sx - cx) * (zCam / F);
+            return { rx, ry };
+          }
+        };
+      }
+
+      // Teisendab ekraanipuute (clientX, clientY) täpseks { lat, lon } koordinaadiks arvestades pöördenurka ja 3D perspektiivi
       function screenToLatLon(clientX, clientY) {
         const center = getMapCenter();
         if (!center) return null;
@@ -1447,7 +1509,9 @@
         const sx = clientX - rect.left;
         const sy = clientY - rect.top;
 
-        const { cx, cy, pxPerM } = getCurrentMapMetrics();
+        const metrics = getCurrentMapMetrics();
+        const cam = createMapCamera(metrics);
+        const { pxPerM } = metrics;
         const cosLat = Math.cos(toRad(center.lat));
         const z = state.currentTileZ !== null
           ? state.currentTileZ
@@ -1455,14 +1519,15 @@
         const tileSizePx = (40075016.68557849 * cosLat / Math.pow(2, z)) * pxPerM;
         if (tileSizePx <= 0) return null;
 
+        const ground = cam.unprojectScreen(sx, sy);
+        if (!ground) return null;
+
         const hdgRad = toRad(state.displayHeading);
         const cosH = Math.cos(hdgRad);
         const sinH = Math.sin(hdgRad);
 
-        const dsx = sx - cx;
-        const dsy = sy - cy;
-        const mx = dsx * cosH - dsy * sinH;
-        const my = dsx * sinH + dsy * cosH;
+        const mx = ground.rx * cosH - ground.ry * sinH;
+        const my = ground.rx * sinH + ground.ry * cosH;
 
         const centerTile = latLonToTileXY(center.lat, center.lon, z);
         return tileXYToLatLon(centerTile.x + mx / tileSizePx, centerTile.y + my / tileSizePx, z);
@@ -1519,7 +1584,7 @@
         }, LONG_PRESS_MS);
       }
 
-      function applyScreenPan(dxScreen, dyScreen) {
+      function applyScreenPan(dxScreen, dyScreen, refClientX, refClientY) {
         if (dxScreen === 0 && dyScreen === 0) return;
         const center = getMapCenter();
         if (!center) return;
@@ -1530,20 +1595,41 @@
           el.recenterBtn.classList.add("show");
         }
 
-        const { pxPerM } = getCurrentMapMetrics();
+        const metrics = getCurrentMapMetrics();
+        const cam = createMapCamera(metrics);
+        const { pxPerM } = metrics;
         const cosLat = Math.cos(toRad(state.viewCenter.lat));
         const z = state.currentTileZ !== null ? state.currentTileZ : 14;
         const tileSizePx = (40075016.68557849 * cosLat / Math.pow(2, z)) * pxPerM;
         if (tileSizePx <= 0) return;
 
+        let dRx = -dxScreen;
+        let dRy = -dyScreen;
+        if (cam.is3d && refClientX !== undefined && refClientY !== undefined) {
+          const rect = el.radarCanvas.getBoundingClientRect();
+          const minSafeY = Math.max(cam.horizonY + 75, metrics.h * 0.28);
+          const curSx = refClientX - rect.left;
+          const curSy = Math.max(minSafeY, refClientY - rect.top);
+          const prevSx = curSx - dxScreen;
+          const prevSy = Math.max(minSafeY, curSy - dyScreen);
+          const gPrev = cam.unprojectScreen(prevSx, prevSy);
+          const gCur = cam.unprojectScreen(curSx, curSy);
+          if (gPrev && gCur) {
+            dRx = gPrev.rx - gCur.rx;
+            dRy = gPrev.ry - gCur.ry;
+          } else {
+            dRy = -dyScreen / Math.max(0.45, cam.cosA);
+          }
+        } else if (cam.is3d) {
+          dRy = -dyScreen / Math.max(0.45, cam.cosA);
+        }
+
         const hdgRad = toRad(state.displayHeading);
         const cosH = Math.cos(hdgRad);
         const sinH = Math.sin(hdgRad);
 
-        const dsx = -dxScreen;
-        const dsy = -dyScreen;
-        const dmx = dsx * cosH - dsy * sinH;
-        const dmy = dsx * sinH + dsy * cosH;
+        const dmx = dRx * cosH - dRy * sinH;
+        const dmy = dRx * sinH + dRy * cosH;
 
         const curTile = latLonToTileXY(state.viewCenter.lat, state.viewCenter.lon, z);
         const nextCenter = tileXYToLatLon(curTile.x + dmx / tileSizePx, curTile.y + dmy / tileSizePx, z);
@@ -1603,7 +1689,7 @@
             cancelLongPress();
           }
           if (panState.totalMove >= 6 && !longPress.triggered) {
-            applyScreenPan(dx, dy);
+            applyScreenPan(dx, dy, e.clientX, e.clientY);
           }
         } else if (activePointers.size >= 2) {
           cancelLongPress();
@@ -1626,7 +1712,7 @@
           const mdx = midX - panState.lastMidX;
           const mdy = midY - panState.lastMidY;
           if (Math.abs(mdx) > 0.5 || Math.abs(mdy) > 0.5) {
-            applyScreenPan(mdx, mdy);
+            applyScreenPan(mdx, mdy, midX, midY);
           }
 
           panState.lastPinchDist = dist;
@@ -3275,11 +3361,182 @@
         state.needsRedraw = true;
       }
 
-      function drawCompassRing(ctx, cx, cy, r, hdgRad, pal, fontSize) {
+      function clipPolygonRingToNear(pts, tx0, ty0, a00, a01, a10, a11, maxRy) {
+        const n = pts.length;
+        if (n < 6) return null;
+        const rot = new Array(n);
+        let anyAbove = false;
+        let allAbove = true;
+        for (let i = 0; i < n; i += 2) {
+          const px = pts[i], py = pts[i + 1];
+          const rx = tx0 + px * a00 + py * a01;
+          const ry = ty0 + px * a10 + py * a11;
+          rot[i] = rx;
+          rot[i + 1] = ry;
+          if (ry > maxRy) anyAbove = true;
+          else allAbove = false;
+        }
+        if (allAbove) return null;
+        if (!anyAbove) return rot;
+
+        const out = [];
+        let prevX = rot[n - 2], prevY = rot[n - 1];
+        let prevIn = prevY <= maxRy;
+        for (let i = 0; i < n; i += 2) {
+          const curX = rot[i], curY = rot[i + 1];
+          const curIn = curY <= maxRy;
+          if (curIn !== prevIn) {
+            const t = (maxRy - prevY) / (curY - prevY);
+            out.push(prevX + (curX - prevX) * t, maxRy);
+          }
+          if (curIn) out.push(curX, curY);
+          prevX = curX;
+          prevY = curY;
+          prevIn = curIn;
+        }
+        return out.length >= 6 ? out : null;
+      }
+
+      function addClippedPolyline3D(ctx, pts, tx0, ty0, a00, a01, a10, a11, cam) {
+        if (pts.length < 4) return;
+        const maxRy = cam.maxRy;
+        const minRy = cam.minRy;
+        let rx0 = tx0 + pts[0] * a00 + pts[1] * a01;
+        let ry0 = ty0 + pts[0] * a10 + pts[1] * a11;
+        let needMove = true;
+
+        for (let i = 2; i < pts.length; i += 2) {
+          const rx1 = tx0 + pts[i] * a00 + pts[i + 1] * a01;
+          const ry1 = ty0 + pts[i] * a10 + pts[i + 1] * a11;
+
+          if ((ry0 > maxRy && ry1 > maxRy) || (ry0 < minRy && ry1 < minRy)) {
+            rx0 = rx1; ry0 = ry1;
+            needMove = true;
+            continue;
+          }
+
+          let sx0 = rx0, sy0 = ry0, sx1 = rx1, sy1 = ry1;
+          let clippedStart = false;
+          if (sy0 > maxRy) {
+            const t = (maxRy - sy0) / (sy1 - sy0);
+            sx0 = sx0 + (sx1 - sx0) * t;
+            sy0 = maxRy;
+            clippedStart = true;
+          } else if (sy1 > maxRy) {
+            const t = (maxRy - sy0) / (sy1 - sy0);
+            sx1 = sx0 + (sx1 - sx0) * t;
+            sy1 = maxRy;
+          }
+
+          if (needMove || clippedStart) {
+            const p0 = cam.projectRot(sx0, sy0);
+            ctx.moveTo(p0.sx, p0.sy);
+          }
+          const p1 = cam.projectRot(sx1, sy1);
+          ctx.lineTo(p1.sx, p1.sy);
+
+          needMove = ry1 > maxRy;
+          rx0 = rx1; ry0 = ry1;
+        }
+      }
+
+      function drawRoutePolyline(ctx, rotPts, strokeStyle, baseWidth, dash, cam) {
+        if (!rotPts || rotPts.length < 2) return;
+        ctx.strokeStyle = strokeStyle;
+        ctx.setLineDash(dash || []);
+
+        if (!cam.is3d) {
+          ctx.lineWidth = baseWidth;
+          ctx.beginPath();
+          for (let i = 0; i < rotPts.length; i++) {
+            const p = cam.projectRot(rotPts[i].rx, rotPts[i].ry);
+            if (i === 0) ctx.moveTo(p.sx, p.sy);
+            else ctx.lineTo(p.sx, p.sy);
+          }
+          ctx.stroke();
+          ctx.setLineDash([]);
+          return;
+        }
+
+        const maxRy = cam.maxRy;
+        const minRy = cam.minRy;
+        for (let i = 1; i < rotPts.length; i++) {
+          let x0 = rotPts[i - 1].rx, y0 = rotPts[i - 1].ry;
+          let x1 = rotPts[i].rx, y1 = rotPts[i].ry;
+          if ((y0 > maxRy && y1 > maxRy) || (y0 < minRy && y1 < minRy)) continue;
+          if (y0 > maxRy) {
+            const t = (maxRy - y0) / (y1 - y0);
+            x0 += (x1 - x0) * t; y0 = maxRy;
+          } else if (y1 > maxRy) {
+            const t = (maxRy - y0) / (y1 - y0);
+            x1 = x0 + (x1 - x0) * t; y1 = maxRy;
+          }
+          const p0 = cam.projectRot(x0, y0);
+          const p1 = cam.projectRot(x1, y1);
+          const kMid = (p0.k + p1.k) * 0.5;
+          ctx.lineWidth = Math.max(2.2, Math.min(baseWidth * 1.55, baseWidth * kMid));
+          ctx.beginPath();
+          ctx.moveTo(p0.sx, p0.sy);
+          ctx.lineTo(p1.sx, p1.sy);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+      }
+
+      function drawGroundRing(ctx, cam, r) {
+        ctx.beginPath();
+        if (!cam.is3d) {
+          ctx.arc(cam.cx, cam.cy, r, 0, Math.PI * 2);
+          return;
+        }
+        const segs = 64;
+        for (let i = 0; i <= segs; i++) {
+          const a = (i / segs) * Math.PI * 2;
+          const rx = Math.cos(a) * r;
+          const ry = Math.sin(a) * r;
+          const p = cam.projectRot(rx, Math.min(cam.maxRy, ry));
+          if (i === 0) ctx.moveTo(p.sx, p.sy);
+          else ctx.lineTo(p.sx, p.sy);
+        }
+        ctx.closePath();
+      }
+
+      function drawHorizonFog(ctx, cam, pal) {
+        if (!cam.is3d || cam.pitch < 0.04) return;
+        const w = cam.w, h = cam.h;
+        const horizonLineY = Math.max(22, Math.min(h * 0.22, cam.horizonY + 12));
+        const fogBottom = Math.max(horizonLineY + h * 0.22, h * 0.25);
+
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, cam.pitch * 1.35);
+        const grad = ctx.createLinearGradient(0, 0, 0, fogBottom);
+        if (state.dayMode) {
+          grad.addColorStop(0.0, "#dcebfa");
+          grad.addColorStop(0.32, "rgba(238,246,255,0.96)");
+          grad.addColorStop(0.66, "rgba(255,255,255,0.62)");
+          grad.addColorStop(1.0, "rgba(255,255,255,0)");
+        } else {
+          grad.addColorStop(0.0, "#000000");
+          grad.addColorStop(0.36, "rgba(0,0,0,0.96)");
+          grad.addColorStop(0.68, "rgba(0,0,0,0.58)");
+          grad.addColorStop(1.0, "rgba(0,0,0,0)");
+        }
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, fogBottom);
+
+        ctx.strokeStyle = state.dayMode ? "rgba(130, 178, 224, 0.55)" : "rgba(38, 86, 140, 0.48)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(0, horizonLineY);
+        ctx.lineTo(w, horizonLineY);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawCompassRing(ctx, cam, r, hdgRad, pal, fontSize) {
         ctx.strokeStyle = pal.border;
         ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        drawGroundRing(ctx, cam, r);
         ctx.stroke();
 
         ctx.strokeStyle = pal.border;
@@ -3287,9 +3544,12 @@
         for (let deg = 0; deg < 360; deg += 30) {
           if (deg % 90 === 0) continue;
           const a = toRad(deg) - hdgRad - Math.PI / 2;
+          const ca = Math.cos(a), sa = Math.sin(a);
+          const p0 = cam.projectRot(ca * (r - 6), Math.min(cam.maxRy, sa * (r - 6)));
+          const p1 = cam.projectRot(ca * (r + 2), Math.min(cam.maxRy, sa * (r + 2)));
           ctx.beginPath();
-          ctx.moveTo(cx + Math.cos(a) * (r - 6), cy + Math.sin(a) * (r - 6));
-          ctx.lineTo(cx + Math.cos(a) * (r + 2), cy + Math.sin(a) * (r + 2));
+          ctx.moveTo(p0.sx, p0.sy);
+          ctx.lineTo(p1.sx, p1.sy);
           ctx.stroke();
         }
 
@@ -3308,38 +3568,47 @@
         for (let i = 0; i < cardinals.length; i++) {
           const c = cardinals[i];
           const a = toRad(c.deg) - hdgRad - Math.PI / 2;
-          const lx = cx + Math.cos(a) * r;
-          const ly = cy + Math.sin(a) * r;
+          const p = cam.projectRot(Math.cos(a) * r, Math.min(cam.maxRy, Math.sin(a) * r));
+          if (p.sy < 12 || p.sy > cam.h - 8) continue;
 
           ctx.fillStyle = pal.cardBg;
           ctx.beginPath();
-          ctx.arc(lx, ly, badgeR, 0, Math.PI * 2);
+          ctx.arc(p.sx, p.sy, badgeR, 0, Math.PI * 2);
           ctx.fill();
 
           ctx.fillStyle = c.col;
-          ctx.fillText(c.lbl, lx, ly + 0.5);
+          ctx.fillText(c.lbl, p.sx, p.sy + 0.5);
         }
       }
 
-      function drawTargetCrosshair(ctx, x, y, pal) {
+      function drawTargetCrosshair(ctx, x, y, pal, scale) {
+        const s = scale || 1;
         ctx.strokeStyle = pal.accent;
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = Math.max(1.8, 2.5 * s);
         ctx.beginPath();
-        ctx.arc(x, y, 10, 0, Math.PI * 2);
+        ctx.arc(x, y, 10 * s, 0, Math.PI * 2);
         ctx.stroke();
         ctx.beginPath();
-        ctx.moveTo(x - 15, y); ctx.lineTo(x + 15, y);
-        ctx.moveTo(x, y - 15); ctx.lineTo(x, y + 15);
+        ctx.moveTo(x - 15 * s, y); ctx.lineTo(x + 15 * s, y);
+        ctx.moveTo(x, y - 15 * s); ctx.lineTo(x, y + 15 * s);
         ctx.stroke();
         ctx.fillStyle = pal.accent;
         ctx.beginPath();
-        ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+        ctx.arc(x, y, 3.5 * s, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      function drawRiderArrow(ctx, x, y, rotRad, pal) {
+      function drawRiderArrow(ctx, x, y, rotRad, pal, pitch3d) {
+        const p = pitch3d || 0;
         ctx.save();
         ctx.translate(x, y);
+        if (p > 0.05) {
+          ctx.fillStyle = state.dayMode ? "rgba(0,0,0,0.22)" : "rgba(0,230,118,0.18)";
+          ctx.beginPath();
+          ctx.ellipse(0, 5 * p, 17, 9, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.scale(1, 1 - 0.22 * p);
+        }
         ctx.rotate(rotRad);
         ctx.fillStyle = pal.text;
         ctx.strokeStyle = pal.bg;
@@ -3387,13 +3656,14 @@
         ctx.fill();
       }
 
-      function drawPoisInsideCircle(ctx, cx, cy, radiusPx, hdgRad, toMapXY, pal) {
+      function drawPoisInsideCircle(ctx, cam, radiusPx, hdgRad, toMapXY, pal) {
         state.pois.rendered = [];
         if (!state.pois.activeCatId || !state.pois.items.length) return;
 
         const cosH = Math.cos(hdgRad);
         const sinH = Math.sin(hdgRad);
-        const maxDrawR = radiusPx - 11;
+        const maxDrawR = cam.is3d ? radiusPx * 1.45 : (radiusPx - 11);
+        const minSy = cam.is3d ? Math.max(cam.horizonY + 26, cam.h * 0.12) : 14;
         const selectedPoiId = state.destination && state.destination.poiId;
 
         const placed = [];
@@ -3403,8 +3673,14 @@
           const rDist = Math.hypot(m.x, m.y);
           if (rDist > maxDrawR) continue;
 
-          const sx = cx + m.x * cosH + m.y * sinH;
-          const sy = cy - m.x * sinH + m.y * cosH;
+          const rx = m.x * cosH + m.y * sinH;
+          const ry = -m.x * sinH + m.y * cosH;
+          if (cam.is3d && (ry > cam.maxRy * 0.85 || ry < cam.minRy * 0.85)) continue;
+
+          const proj = cam.projectRot(rx, ry);
+          const sx = proj.sx, sy = proj.sy;
+          if (sx < 14 || sx > cam.w - 14 || sy < minSy || sy > cam.h - 14) continue;
+
           const isSelected = selectedPoiId && poi.id === selectedPoiId;
 
           if (!isSelected) {
@@ -3418,16 +3694,21 @@
             if (tooClose) continue;
           }
 
-          placed.push({ poi, sx, sy, isSelected });
+          placed.push({ poi, sx, sy, ry, k: proj.k, isSelected });
           if (placed.length >= 60) break;
+        }
+
+        if (cam.is3d && placed.length > 1) {
+          placed.sort((a, b) => a.ry - b.ry);
         }
 
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
 
         for (let i = 0; i < placed.length; i++) {
-          const { poi, sx, sy, isSelected } = placed[i];
-          const pinR = isSelected ? 12 : 10;
+          const { poi, sx, sy, k, isSelected } = placed[i];
+          const depthScale = cam.is3d ? Math.max(0.76, Math.min(1.16, k)) : 1;
+          const pinR = (isSelected ? 12 : 10) * depthScale;
 
           ctx.fillStyle = isSelected ? pal.accent : poi.color;
           ctx.beginPath();
@@ -3439,7 +3720,7 @@
           ctx.stroke();
 
           ctx.fillStyle = "#000000";
-          ctx.font = "900 11px sans-serif";
+          ctx.font = `900 ${Math.max(9, Math.round(11 * depthScale))}px sans-serif`;
           ctx.fillText(poi.code, sx, sy + 0.5);
 
           if (i < 12 || isSelected) {
@@ -3486,7 +3767,8 @@
           state.pois.rendered = [];
           const cx = w / 2, cy = h / 2;
           const r = Math.min(w, h) * 0.36;
-          drawCompassRing(ctx, cx, cy, r, hdgRad, pal, 18);
+          const flatCam = createMapCamera({ cx, cy, w, h, pitch: 0 });
+          drawCompassRing(ctx, flatCam, r, hdgRad, pal, 18);
 
           if (hasValidGps() && state.destination) {
             const brg = bearingDegrees({ lat: state.gps.lat, lon: state.gps.lon }, state.destination);
@@ -3506,10 +3788,15 @@
           return;
         }
 
-        // 2. TEEKONNA JA MAASTIKUKAARDI REŽIIM
-        const { cx, cy, radiusPx, pxPerM } = getCurrentMapMetrics();
+        // 2. TEEKONNA JA MAASTIKUKAARDI REŽIIM (2D JA 3D PERSPEKTIIV)
+        const metrics = getCurrentMapMetrics();
+        const { cx, cy, radiusPx, pxPerM } = metrics;
+        const cam = createMapCamera(metrics);
+        const cosH = Math.cos(hdgRad);
+        const sinH = Math.sin(hdgRad);
         const center = getMapCenter();
         let toMapXY = null;
+        let toRotXY = null;
 
         if (center) {
           const cosLat = Math.cos(toRad(center.lat));
@@ -3530,55 +3817,127 @@
               y: (t.y - centerTile.y) * tileSizePx
             };
           };
-
-          ctx.save();
-          ctx.translate(cx, cy);
-          ctx.rotate(-hdgRad);
+          toRotXY = (pt) => {
+            const m = toMapXY(pt);
+            return {
+              rx: m.x * cosH + m.y * sinH,
+              ry: -m.x * sinH + m.y * cosH
+            };
+          };
 
           // A0) KIIRE GRAAFILINE VEKTORKAART (MUST/VALGE + HELEDAD/TUMEDAD TEED + ALATI SININE VESI)
           if (bm.isVectorGraphic) {
-            const reachPx = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy));
-            const reachSq = reachPx * reachPx;
-            const spanTiles = Math.min(4, Math.ceil(reachPx / tileSizePx) + 1);
-            const baseTx = Math.floor(centerTile.x);
-            const baseTy = Math.floor(centerTile.y);
-
             const drawTiles = [];
-            for (let dxT = -spanTiles; dxT <= spanTiles; dxT++) {
-              for (let dyT = -spanTiles; dyT <= spanTiles; dyT++) {
-                const tx = baseTx + dxT;
-                const ty = baseTy + dyT;
-                const drawX = (tx - centerTile.x) * tileSizePx;
-                const drawY = (ty - centerTile.y) * tileSizePx;
-                const nearX = Math.max(drawX, 0, -(drawX + tileSizePx));
-                const nearY = Math.max(drawY, 0, -(drawY + tileSizePx));
-                if (nearX * nearX + nearY * nearY > reachSq) continue;
-                const entry = getVectorTile(z, tx, ty);
-                if (entry && entry.ready && entry.data) {
-                  drawTiles.push({
-                    data: entry.data,
-                    drawX, drawY, size: tileSizePx,
-                    clipX: drawX, clipY: drawY, clipSize: tileSizePx
-                  });
-                } else {
-                  for (let dz = 1; dz <= 2; dz++) {
-                    const pz = z - dz;
-                    if (pz < 4) break;
-                    const scale = Math.pow(2, dz);
-                    const ptx = Math.floor(tx / scale);
-                    const pty = Math.floor(ty / scale);
-                    const parent = peekVectorTile(pz, ptx, pty);
-                    if (parent && parent.ready && parent.data) {
-                      const pSize = tileSizePx * scale;
-                      const pCenter = latLonToTileXY(center.lat, center.lon, pz);
-                      const pDrawX = (ptx - pCenter.x) * pSize;
-                      const pDrawY = (pty - pCenter.y) * pSize;
-                      drawTiles.push({
-                        data: parent.data,
-                        drawX: pDrawX, drawY: pDrawY, size: pSize,
-                        clipX: drawX, clipY: drawY, clipSize: tileSizePx
-                      });
-                      break;
+            if (!cam.is3d) {
+              const reachPx = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy));
+              const reachSq = reachPx * reachPx;
+              const spanTiles = Math.min(4, Math.ceil(reachPx / tileSizePx) + 1);
+              const baseTx = Math.floor(centerTile.x);
+              const baseTy = Math.floor(centerTile.y);
+
+              for (let dxT = -spanTiles; dxT <= spanTiles; dxT++) {
+                for (let dyT = -spanTiles; dyT <= spanTiles; dyT++) {
+                  const tx = baseTx + dxT;
+                  const ty = baseTy + dyT;
+                  const drawX = (tx - centerTile.x) * tileSizePx;
+                  const drawY = (ty - centerTile.y) * tileSizePx;
+                  const nearX = Math.max(drawX, 0, -(drawX + tileSizePx));
+                  const nearY = Math.max(drawY, 0, -(drawY + tileSizePx));
+                  if (nearX * nearX + nearY * nearY > reachSq) continue;
+                  const entry = getVectorTile(z, tx, ty);
+                  if (entry && entry.ready && entry.data) {
+                    drawTiles.push({
+                      data: entry.data,
+                      drawX, drawY, size: tileSizePx,
+                      clipX: drawX, clipY: drawY, clipSize: tileSizePx
+                    });
+                  } else {
+                    for (let dz = 1; dz <= 2; dz++) {
+                      const pz = z - dz;
+                      if (pz < 4) break;
+                      const scale = Math.pow(2, dz);
+                      const ptx = Math.floor(tx / scale);
+                      const pty = Math.floor(ty / scale);
+                      const parent = peekVectorTile(pz, ptx, pty);
+                      if (parent && parent.ready && parent.data) {
+                        const pSize = tileSizePx * scale;
+                        const pCenter = latLonToTileXY(center.lat, center.lon, pz);
+                        const pDrawX = (ptx - pCenter.x) * pSize;
+                        const pDrawY = (pty - pCenter.y) * pSize;
+                        drawTiles.push({
+                          data: parent.data,
+                          drawX: pDrawX, drawY: pDrawY, size: pSize,
+                          clipX: drawX, clipY: drawY, clipSize: tileSizePx
+                        });
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+            } else {
+              // 3D vaates nihuta plaatide otsingukese sõidusuunas ettepoole horisondi suunas
+              const fwdLimit = Math.min(2600, Math.abs(cam.minRy));
+              const backLimit = Math.min(520, cam.maxRy);
+              const fwdShiftPx = Math.min(fwdLimit * 0.42, tileSizePx * 1.6);
+              const focusTx = Math.floor(centerTile.x + (fwdShiftPx * sinH) / tileSizePx);
+              const focusTy = Math.floor(centerTile.y + (-fwdShiftPx * cosH) / tileSizePx);
+              const spanTiles = Math.min(4, Math.ceil((fwdLimit * 0.65) / tileSizePx) + 1);
+              const sideHalfBase = w * 0.55;
+              const seenParentKeys = new Set();
+
+              for (let dxT = -spanTiles; dxT <= spanTiles; dxT++) {
+                for (let dyT = -spanTiles; dyT <= spanTiles; dyT++) {
+                  const tx = focusTx + dxT;
+                  const ty = focusTy + dyT;
+                  const drawX = (tx - centerTile.x) * tileSizePx;
+                  const drawY = (ty - centerTile.y) * tileSizePx;
+
+                  // Kontrolli plaadi 4 nurka pööratud maapinnakoordinaatides
+                  const x0 = drawX, y0 = drawY, x1 = drawX + tileSizePx, y1 = drawY + tileSizePx;
+                  const r0x = x0 * cosH + y0 * sinH, r0y = -x0 * sinH + y0 * cosH;
+                  const r1x = x1 * cosH + y0 * sinH, r1y = -x1 * sinH + y0 * cosH;
+                  const r2x = x1 * cosH + y1 * sinH, r2y = -x1 * sinH + y1 * cosH;
+                  const r3x = x0 * cosH + y1 * sinH, r3y = -x0 * sinH + y1 * cosH;
+                  const tMinRy = Math.min(r0y, r1y, r2y, r3y);
+                  const tMaxRy = Math.max(r0y, r1y, r2y, r3y);
+                  if (tMaxRy < -fwdLimit || tMinRy > backLimit) continue;
+                  const tMinRx = Math.min(r0x, r1x, r2x, r3x);
+                  const tMaxRx = Math.max(r0x, r1x, r2x, r3x);
+                  const farDepthScale = (cam.F - Math.min(0, tMinRy) * cam.sinA) / cam.F;
+                  const maxHalfRx = sideHalfBase * farDepthScale + 120;
+                  if (tMaxRx < -maxHalfRx || tMinRx > maxHalfRx) continue;
+
+                  const entry = getVectorTile(z, tx, ty);
+                  if (entry && entry.ready && entry.data) {
+                    drawTiles.push({
+                      data: entry.data,
+                      drawX, drawY, size: tileSizePx,
+                      clipX: drawX, clipY: drawY, clipSize: tileSizePx
+                    });
+                  } else {
+                    for (let dz = 1; dz <= 2; dz++) {
+                      const pz = z - dz;
+                      if (pz < 4) break;
+                      const scale = Math.pow(2, dz);
+                      const ptx = Math.floor(tx / scale);
+                      const pty = Math.floor(ty / scale);
+                      const pKey = `${pz}/${ptx}/${pty}`;
+                      if (seenParentKeys.has(pKey)) break;
+                      const parent = peekVectorTile(pz, ptx, pty);
+                      if (parent && parent.ready && parent.data) {
+                        seenParentKeys.add(pKey);
+                        const pSize = tileSizePx * scale;
+                        const pCenter = latLonToTileXY(center.lat, center.lon, pz);
+                        const pDrawX = (ptx - pCenter.x) * pSize;
+                        const pDrawY = (pty - pCenter.y) * pSize;
+                        drawTiles.push({
+                          data: parent.data,
+                          drawX: pDrawX, drawY: pDrawY, size: pSize,
+                          clipX: pDrawX, clipY: pDrawY, clipSize: pSize
+                        });
+                        break;
+                      }
                     }
                   }
                 }
@@ -3591,69 +3950,6 @@
             const riverW = Math.max(1.8, Math.min(4.5, pxPerM * 7));
             const streamW = Math.max(1.0, Math.min(2.2, pxPerM * 3));
             const showStreams = state.radarRadiusM <= 6000;
-
-            for (let ti = 0; ti < drawTiles.length; ti++) {
-              const dt = drawTiles[ti];
-              const d = dt.data;
-              if (!d.water.length && !d.waterwayMajor.length && (!showStreams || !d.waterwayMinor.length)) continue;
-              const s = dt.size / (d.extent || 4096);
-              const ox = dt.drawX, oy = dt.drawY;
-
-              ctx.save();
-              ctx.beginPath();
-              ctx.rect(dt.clipX - 0.5, dt.clipY - 0.5, dt.clipSize + 1, dt.clipSize + 1);
-              ctx.clip();
-
-              if (d.water.length) {
-                ctx.fillStyle = pal.waterFill;
-                for (let wi = 0; wi < d.water.length; wi++) {
-                  const rings = d.water[wi];
-                  ctx.beginPath();
-                  for (let ri = 0; ri < rings.length; ri++) {
-                    const pts = rings[ri];
-                    if (pts.length < 6) continue;
-                    ctx.moveTo(ox + pts[0] * s, oy + pts[1] * s);
-                    for (let pi = 2; pi < pts.length; pi += 2) {
-                      ctx.lineTo(ox + pts[pi] * s, oy + pts[pi + 1] * s);
-                    }
-                    ctx.closePath();
-                  }
-                  ctx.fill("evenodd");
-                }
-              }
-
-              if (showStreams && d.waterwayMinor.length) {
-                ctx.strokeStyle = pal.waterwayMinor;
-                ctx.lineWidth = streamW;
-                ctx.beginPath();
-                for (let li = 0; li < d.waterwayMinor.length; li++) {
-                  const pts = d.waterwayMinor[li];
-                  ctx.moveTo(ox + pts[0] * s, oy + pts[1] * s);
-                  for (let pi = 2; pi < pts.length; pi += 2) {
-                    ctx.lineTo(ox + pts[pi] * s, oy + pts[pi + 1] * s);
-                  }
-                }
-                ctx.stroke();
-              }
-
-              if (d.waterwayMajor.length) {
-                ctx.strokeStyle = pal.waterwayMajor;
-                ctx.lineWidth = riverW;
-                ctx.beginPath();
-                for (let li = 0; li < d.waterwayMajor.length; li++) {
-                  const pts = d.waterwayMajor[li];
-                  ctx.moveTo(ox + pts[0] * s, oy + pts[1] * s);
-                  for (let pi = 2; pi < pts.length; pi += 2) {
-                    ctx.lineTo(ox + pts[pi] * s, oy + pts[pi + 1] * s);
-                  }
-                }
-                ctx.stroke();
-              }
-
-              ctx.restore();
-            }
-
-            // 2) GRAAFILISED TEED JA TÄNAVAD (HELEDAD MUSTAL / TUMEDAD VALGEL)
             const zoomScale = Math.max(0.65, Math.min(1.7, Math.sqrt(pxPerM * 1.45)));
             const roadStyles = [
               { show: state.radarRadiusM <= 2200, col: pal.roadTrack,   w: 1.15 * zoomScale, dash: [5, 4] },
@@ -3663,43 +3959,194 @@
               { show: true,                       col: pal.roadHighway, w: 3.75 * zoomScale, dash: [] }
             ];
 
-            for (let ti = 0; ti < drawTiles.length; ti++) {
-              const dt = drawTiles[ti];
-              const d = dt.data;
-              const s = dt.size / (d.extent || 4096);
-              const ox = dt.drawX, oy = dt.drawY;
-
+            if (!cam.is3d) {
               ctx.save();
-              ctx.beginPath();
-              ctx.rect(dt.clipX - 0.5, dt.clipY - 0.5, dt.clipSize + 1, dt.clipSize + 1);
-              ctx.clip();
+              ctx.translate(cx, cy);
+              ctx.rotate(-hdgRad);
 
-              for (let tier = 0; tier < roadStyles.length; tier++) {
-                const st = roadStyles[tier];
-                if (!st.show) continue;
-                const lines = d.roads[tier];
-                if (!lines || !lines.length) continue;
+              for (let ti = 0; ti < drawTiles.length; ti++) {
+                const dt = drawTiles[ti];
+                const d = dt.data;
+                if (!d.water.length && !d.waterwayMajor.length && (!showStreams || !d.waterwayMinor.length)) continue;
+                const s = dt.size / (d.extent || 4096);
+                const ox = dt.drawX, oy = dt.drawY;
 
-                ctx.strokeStyle = st.col;
-                ctx.lineWidth = st.w;
-                ctx.setLineDash(st.dash);
+                ctx.save();
                 ctx.beginPath();
-                for (let li = 0; li < lines.length; li++) {
-                  const pts = lines[li];
-                  ctx.moveTo(ox + pts[0] * s, oy + pts[1] * s);
-                  for (let pi = 2; pi < pts.length; pi += 2) {
-                    ctx.lineTo(ox + pts[pi] * s, oy + pts[pi + 1] * s);
+                ctx.rect(dt.clipX - 0.5, dt.clipY - 0.5, dt.clipSize + 1, dt.clipSize + 1);
+                ctx.clip();
+
+                if (d.water.length) {
+                  ctx.fillStyle = pal.waterFill;
+                  for (let wi = 0; wi < d.water.length; wi++) {
+                    const rings = d.water[wi];
+                    ctx.beginPath();
+                    for (let ri = 0; ri < rings.length; ri++) {
+                      const pts = rings[ri];
+                      if (pts.length < 6) continue;
+                      ctx.moveTo(ox + pts[0] * s, oy + pts[1] * s);
+                      for (let pi = 2; pi < pts.length; pi += 2) {
+                        ctx.lineTo(ox + pts[pi] * s, oy + pts[pi + 1] * s);
+                      }
+                      ctx.closePath();
+                    }
+                    ctx.fill("evenodd");
                   }
                 }
-                ctx.stroke();
+
+                if (showStreams && d.waterwayMinor.length) {
+                  ctx.strokeStyle = pal.waterwayMinor;
+                  ctx.lineWidth = streamW;
+                  ctx.beginPath();
+                  for (let li = 0; li < d.waterwayMinor.length; li++) {
+                    const pts = d.waterwayMinor[li];
+                    ctx.moveTo(ox + pts[0] * s, oy + pts[1] * s);
+                    for (let pi = 2; pi < pts.length; pi += 2) {
+                      ctx.lineTo(ox + pts[pi] * s, oy + pts[pi + 1] * s);
+                    }
+                  }
+                  ctx.stroke();
+                }
+
+                if (d.waterwayMajor.length) {
+                  ctx.strokeStyle = pal.waterwayMajor;
+                  ctx.lineWidth = riverW;
+                  ctx.beginPath();
+                  for (let li = 0; li < d.waterwayMajor.length; li++) {
+                    const pts = d.waterwayMajor[li];
+                    ctx.moveTo(ox + pts[0] * s, oy + pts[1] * s);
+                    for (let pi = 2; pi < pts.length; pi += 2) {
+                      ctx.lineTo(ox + pts[pi] * s, oy + pts[pi + 1] * s);
+                    }
+                  }
+                  ctx.stroke();
+                }
+
+                ctx.restore();
               }
-              ctx.setLineDash([]);
+
+              // 2) GRAAFILISED TEED JA TÄNAVAD (2D)
+              for (let ti = 0; ti < drawTiles.length; ti++) {
+                const dt = drawTiles[ti];
+                const d = dt.data;
+                const s = dt.size / (d.extent || 4096);
+                const ox = dt.drawX, oy = dt.drawY;
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(dt.clipX - 0.5, dt.clipY - 0.5, dt.clipSize + 1, dt.clipSize + 1);
+                ctx.clip();
+
+                for (let tier = 0; tier < roadStyles.length; tier++) {
+                  const st = roadStyles[tier];
+                  if (!st.show) continue;
+                  const lines = d.roads[tier];
+                  if (!lines || !lines.length) continue;
+
+                  ctx.strokeStyle = st.col;
+                  ctx.lineWidth = st.w;
+                  ctx.setLineDash(st.dash);
+                  ctx.beginPath();
+                  for (let li = 0; li < lines.length; li++) {
+                    const pts = lines[li];
+                    ctx.moveTo(ox + pts[0] * s, oy + pts[1] * s);
+                    for (let pi = 2; pi < pts.length; pi += 2) {
+                      ctx.lineTo(ox + pts[pi] * s, oy + pts[pi + 1] * s);
+                    }
+                  }
+                  ctx.stroke();
+                }
+                ctx.setLineDash([]);
+                ctx.restore();
+              }
               ctx.restore();
+            } else {
+              // 3D PERSPEKTIIV-VEKTORRENDERDAJA (OTSE EKRAANIKOORDINAATIDES, TERAV JA KIIRE)
+              for (let ti = 0; ti < drawTiles.length; ti++) {
+                const dt = drawTiles[ti];
+                const d = dt.data;
+                if (!d.water.length && !d.waterwayMajor.length && (!showStreams || !d.waterwayMinor.length)) continue;
+                const s = dt.size / (d.extent || 4096);
+                const ox = dt.drawX, oy = dt.drawY;
+                const a00 = s * cosH, a01 = s * sinH;
+                const a10 = -s * sinH, a11 = s * cosH;
+                const tx0 = ox * cosH + oy * sinH;
+                const ty0 = -ox * sinH + oy * cosH;
+
+                if (d.water.length) {
+                  ctx.fillStyle = pal.waterFill;
+                  for (let wi = 0; wi < d.water.length; wi++) {
+                    const rings = d.water[wi];
+                    ctx.beginPath();
+                    let hasAny = false;
+                    for (let ri = 0; ri < rings.length; ri++) {
+                      const clipped = clipPolygonRingToNear(rings[ri], tx0, ty0, a00, a01, a10, a11, cam.maxRy);
+                      if (!clipped) continue;
+                      hasAny = true;
+                      const p0 = cam.projectRot(clipped[0], clipped[1]);
+                      ctx.moveTo(p0.sx, p0.sy);
+                      for (let pi = 2; pi < clipped.length; pi += 2) {
+                        const pp = cam.projectRot(clipped[pi], clipped[pi + 1]);
+                        ctx.lineTo(pp.sx, pp.sy);
+                      }
+                      ctx.closePath();
+                    }
+                    if (hasAny) ctx.fill("evenodd");
+                  }
+                }
+
+                if (showStreams && d.waterwayMinor.length) {
+                  ctx.strokeStyle = pal.waterwayMinor;
+                  ctx.lineWidth = streamW * 0.9;
+                  ctx.beginPath();
+                  for (let li = 0; li < d.waterwayMinor.length; li++) {
+                    addClippedPolyline3D(ctx, d.waterwayMinor[li], tx0, ty0, a00, a01, a10, a11, cam);
+                  }
+                  ctx.stroke();
+                }
+
+                if (d.waterwayMajor.length) {
+                  ctx.strokeStyle = pal.waterwayMajor;
+                  ctx.lineWidth = riverW * 0.95;
+                  ctx.beginPath();
+                  for (let li = 0; li < d.waterwayMajor.length; li++) {
+                    addClippedPolyline3D(ctx, d.waterwayMajor[li], tx0, ty0, a00, a01, a10, a11, cam);
+                  }
+                  ctx.stroke();
+                }
+              }
+
+              // 2) GRAAFILISED TEED JA TÄNAVAD (3D PERSPEKTIIVIS)
+              for (let ti = 0; ti < drawTiles.length; ti++) {
+                const dt = drawTiles[ti];
+                const d = dt.data;
+                const s = dt.size / (d.extent || 4096);
+                const ox = dt.drawX, oy = dt.drawY;
+                const a00 = s * cosH, a01 = s * sinH;
+                const a10 = -s * sinH, a11 = s * cosH;
+                const tx0 = ox * cosH + oy * sinH;
+                const ty0 = -ox * sinH + oy * cosH;
+
+                for (let tier = 0; tier < roadStyles.length; tier++) {
+                  const st = roadStyles[tier];
+                  if (!st.show) continue;
+                  const lines = d.roads[tier];
+                  if (!lines || !lines.length) continue;
+
+                  ctx.strokeStyle = st.col;
+                  ctx.lineWidth = st.w * (tier >= 3 ? 1.05 : 0.9);
+                  ctx.setLineDash(st.dash);
+                  ctx.beginPath();
+                  for (let li = 0; li < lines.length; li++) {
+                    addClippedPolyline3D(ctx, lines[li], tx0, ty0, a00, a01, a10, a11, cam);
+                  }
+                  ctx.stroke();
+                }
+                ctx.setLineDash([]);
+              }
             }
 
-            // 3) PÜSTIPIDISED LINNA-, ASULA- JA TÄNAVANIMED (KATTUMISE VÄLTIMISEGA)
-            const cosH = Math.cos(hdgRad);
-            const sinH = Math.sin(hdgRad);
+            // 3) PÜSTIPIDISED LINNA-, ASULA- JA TÄNAVANIMED (KATTUMISE VÄLTIMISEGA, 2D JA 3D)
             const candidates = [];
             const showMinorNames = state.radarRadiusM <= 1100;
             const showMainNames = state.radarRadiusM <= 3500;
@@ -3735,6 +4182,7 @@
             candidates.sort((a, b) => b.prio - a.prio);
             const placedBoxes = [];
             const seenTexts = new Set();
+            const minLblY = cam.is3d ? Math.max(cam.horizonY + 46, h * 0.18) : 44;
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
             ctx.lineJoin = "round";
@@ -3744,11 +4192,18 @@
               const normTxt = c.text.toLowerCase();
               if (seenTexts.has(normTxt)) continue;
 
-              const sx = cx + c.mx * cosH + c.my * sinH;
-              const sy = cy - c.mx * sinH + c.my * cosH;
-              if (sx < 36 || sx > w - 36 || sy < 44 || sy > h - 26) continue;
+              const rx = c.mx * cosH + c.my * sinH;
+              const ry = -c.mx * sinH + c.my * cosH;
+              if (cam.is3d && (ry > cam.maxRy * 0.72 || ry < cam.minRy * 0.58)) continue;
 
-              const fontSize = c.isPlace ? (c.prio >= 13 ? 13 : 11) : 10;
+              const proj = cam.projectRot(rx, ry);
+              const sx = proj.sx, sy = proj.sy;
+              if (sx < 36 || sx > w - 36 || sy < minLblY || sy > h - 26) continue;
+
+              const baseFs = c.isPlace ? (c.prio >= 13 ? 13 : 11) : 10;
+              const fontSize = cam.is3d
+                ? Math.max(9, Math.round(baseFs * Math.max(0.76, Math.min(1.12, proj.k * 1.05))))
+                : baseFs;
               const halfW = Math.min(72, c.text.length * fontSize * 0.34) + 8;
               const halfH = fontSize * 0.75 + 6;
               let overlaps = false;
@@ -3764,140 +4219,143 @@
               placedBoxes.push({ sx, sy, halfW, halfH });
               seenTexts.add(normTxt);
 
-              ctx.save();
-              ctx.translate(c.mx, c.my);
-              ctx.rotate(hdgRad);
               ctx.font = `${c.isPlace ? 800 : 700} ${fontSize}px system-ui, sans-serif`;
               ctx.strokeStyle = pal.labelHalo;
               ctx.lineWidth = 3.2;
-              ctx.strokeText(c.text, 0, 0);
+              ctx.strokeText(c.text, sx, sy);
               ctx.fillStyle = c.isPlace ? pal.labelPlace : pal.labelStreet;
-              ctx.fillText(c.text, 0, 0);
-              ctx.restore();
+              ctx.fillText(c.text, sx, sy);
             }
           }
 
-          // A) RASTER-ALUSKAARDID (EESTI ETAK / HÜBRIID)
+          // A) RASTER-ALUSKAARDID (EESTI ETAK / HÜBRIID — 2D JA 3D PERSPEKTIIV)
           if (!bm.isVectorGraphic && bm.layers && bm.layers.length > 0) {
-            const maxReachPx = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy)) + tileSizePx;
-            const spanTiles = Math.min(5, Math.ceil(maxReachPx / tileSizePx));
-            const baseTx = Math.floor(centerTile.x);
-            const baseTy = Math.floor(centerTile.y);
+            const drawRasterLayers = (tCtx, targetScale, reachPx, shiftFwdPx) => {
+              const baseAlpha = state.dayMode ? 0.96 : 0.90;
+              for (let li = 0; li < bm.layers.length; li++) {
+                const layerCfg = bm.layers[li];
+                const layerZ = Math.min(z, layerCfg.maxZoom || bm.maxZoom);
+                const layerTileSizePx = (40075016.68557849 * cosLat / Math.pow(2, layerZ)) * pxPerM;
+                const layerCenterTile = layerZ === z ? centerTile : latLonToTileXY(center.lat, center.lon, layerZ);
+                const lBaseTx = Math.floor(layerCenterTile.x + (shiftFwdPx * sinH) / layerTileSizePx);
+                const lBaseTy = Math.floor(layerCenterTile.y + (-shiftFwdPx * cosH) / layerTileSizePx);
+                const lSpan = Math.min(5, Math.ceil(reachPx / layerTileSizePx) + 1);
 
-            const hasVectorOverlay = bm.useVectorOverlay && state.roads.ways.length > 0 && state.radarRadiusM <= 6000;
-            const baseAlpha = hasVectorOverlay
-              ? (state.dayMode ? 0.78 : 0.74)
-              : (state.dayMode ? 0.96 : 0.90);
-
-            for (let li = 0; li < bm.layers.length; li++) {
-              const layerCfg = bm.layers[li];
-              const layerZ = Math.min(z, layerCfg.maxZoom || bm.maxZoom);
-              const layerTileSizePx = (40075016.68557849 * cosLat / Math.pow(2, layerZ)) * pxPerM;
-              const layerCenterTile = layerZ === z ? centerTile : latLonToTileXY(center.lat, center.lon, layerZ);
-              const lBaseTx = Math.floor(layerCenterTile.x);
-              const lBaseTy = Math.floor(layerCenterTile.y);
-              const lSpan = layerZ === z ? spanTiles : Math.min(5, Math.ceil(maxReachPx / layerTileSizePx));
-
-              ctx.globalAlpha = layerCfg.overlay ? 0.95 : baseAlpha;
-              if (!state.dayMode && typeof ctx.filter === "string") {
-                if (bm.invertNight) {
-                  ctx.filter = "invert(100%) hue-rotate(180deg) brightness(88%) contrast(108%) saturate(55%)";
-                } else if (!layerCfg.overlay) {
-                  ctx.filter = "brightness(80%) contrast(108%)";
-                } else {
-                  ctx.filter = "none";
-                }
-              }
-
-              for (let dxT = -lSpan; dxT <= lSpan; dxT++) {
-                for (let dyT = -lSpan; dyT <= lSpan; dyT++) {
-                  const tx = lBaseTx + dxT;
-                  const ty = lBaseTy + dyT;
-                  const drawX = (tx - layerCenterTile.x) * layerTileSizePx;
-                  const drawY = (ty - layerCenterTile.y) * layerTileSizePx;
-                  const entry = getTileImage(layerCfg, layerZ, tx, ty);
-                  if (entry && entry.ready) {
-                    ctx.drawImage(entry.img, drawX, drawY, layerTileSizePx + 0.8, layerTileSizePx + 0.8);
+                tCtx.globalAlpha = layerCfg.overlay ? 0.95 : baseAlpha;
+                if (!state.dayMode && typeof tCtx.filter === "string") {
+                  if (bm.invertNight) {
+                    tCtx.filter = "invert(100%) hue-rotate(180deg) brightness(88%) contrast(108%) saturate(55%)";
                   } else if (!layerCfg.overlay) {
-                    // Sujuv vanemplaadi kohatäide, kuni teravam tänavaplaat laeb
-                    for (let dz = 1; dz <= 2; dz++) {
-                      const pz = layerZ - dz;
-                      if (pz < 4) break;
-                      const scale = Math.pow(2, dz);
-                      const ptx = Math.floor(tx / scale);
-                      const pty = Math.floor(ty / scale);
-                      const parent = peekCachedTile(layerCfg, pz, ptx, pty);
-                      if (parent && parent.ready && parent.img.naturalWidth > 0) {
-                        const subX = ((tx % scale) + scale) % scale;
-                        const subY = ((ty % scale) + scale) % scale;
-                        const sw = parent.img.naturalWidth / scale;
-                        const sh = parent.img.naturalHeight / scale;
-                        ctx.drawImage(
-                          parent.img,
-                          subX * sw, subY * sh, sw, sh,
-                          drawX, drawY, layerTileSizePx + 0.8, layerTileSizePx + 0.8
-                        );
-                        break;
+                    tCtx.filter = "brightness(80%) contrast(108%)";
+                  } else {
+                    tCtx.filter = "none";
+                  }
+                }
+
+                for (let dxT = -lSpan; dxT <= lSpan; dxT++) {
+                  for (let dyT = -lSpan; dyT <= lSpan; dyT++) {
+                    const tx = lBaseTx + dxT;
+                    const ty = lBaseTy + dyT;
+                    const drawX = (tx - layerCenterTile.x) * layerTileSizePx;
+                    const drawY = (ty - layerCenterTile.y) * layerTileSizePx;
+                    const entry = getTileImage(layerCfg, layerZ, tx, ty);
+                    if (entry && entry.ready) {
+                      tCtx.drawImage(entry.img, drawX, drawY, layerTileSizePx + 0.8, layerTileSizePx + 0.8);
+                    } else if (!layerCfg.overlay) {
+                      for (let dz = 1; dz <= 2; dz++) {
+                        const pz = layerZ - dz;
+                        if (pz < 4) break;
+                        const scale = Math.pow(2, dz);
+                        const ptx = Math.floor(tx / scale);
+                        const pty = Math.floor(ty / scale);
+                        const parent = peekCachedTile(layerCfg, pz, ptx, pty);
+                        if (parent && parent.ready && parent.img.naturalWidth > 0) {
+                          const subX = ((tx % scale) + scale) % scale;
+                          const subY = ((ty % scale) + scale) % scale;
+                          const sw = parent.img.naturalWidth / scale;
+                          const sh = parent.img.naturalHeight / scale;
+                          tCtx.drawImage(
+                            parent.img,
+                            subX * sw, subY * sh, sw, sh,
+                            drawX, drawY, layerTileSizePx + 0.8, layerTileSizePx + 0.8
+                          );
+                          break;
+                        }
                       }
                     }
                   }
                 }
               }
-            }
-            if (typeof ctx.filter === "string") ctx.filter = "none";
-            ctx.globalAlpha = 1.0;
-          }
+              if (typeof tCtx.filter === "string") tCtx.filter = "none";
+              tCtx.globalAlpha = 1.0;
+            };
 
-          // B) OVERPASS VEKTOR-KÕRVALTEED (AINULT OSM+TEED REŽIIMIS)
-          if (
-            bm.useVectorOverlay &&
-            state.roads.ways.length > 0 &&
-            state.radarRadiusM <= 6000
-          ) {
-            const maxViewM = (Math.hypot(w, h) / pxPerM) * 0.9;
-            const dLatSpan = maxViewM / 111320;
-            const dLonSpan = maxViewM / (111320 * Math.max(0.2, cosLat));
-            const vMinLat = center.lat - dLatSpan;
-            const vMaxLat = center.lat + dLatSpan;
-            const vMinLon = center.lon - dLonSpan;
-            const vMaxLon = center.lon + dLonSpan;
-
-            ctx.lineCap = "round";
-            ctx.lineJoin = "round";
-
-            const tiers = [
-              { id: "path",  col: pal.roadPath,  width: 1.2, dash: [3, 4] },
-              { id: "track", col: pal.roadTrack, width: 1.6, dash: [6, 3] },
-              { id: "minor", col: pal.roadMinor, width: 2.1, dash: [] },
-              { id: "main",  col: pal.roadMain,  width: 3.0, dash: [] }
-            ];
-
-            for (let t = 0; t < tiers.length; t++) {
-              const tier = tiers[t];
-              ctx.strokeStyle = tier.col;
-              ctx.lineWidth = tier.width;
-              ctx.setLineDash(tier.dash);
-              ctx.beginPath();
-
-              for (let i = 0; i < state.roads.ways.length; i++) {
-                const way = state.roads.ways[i];
-                if (way.tier !== tier.id) continue;
-                const bb = way.bbox;
-                if (bb[1] < vMinLat || bb[0] > vMaxLat || bb[3] < vMinLon || bb[2] > vMaxLon) continue;
-
-                const pts = way.pts;
-                for (let j = 0; j < pts.length; j++) {
-                  const p = toMapXY(pts[j]);
-                  if (j === 0) ctx.moveTo(p.x, p.y);
-                  else ctx.lineTo(p.x, p.y);
-                }
+            if (!cam.is3d) {
+              ctx.save();
+              ctx.translate(cx, cy);
+              ctx.rotate(-hdgRad);
+              const maxReachPx = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy));
+              drawRasterLayers(ctx, 1, maxReachPx, 0);
+              ctx.restore();
+            } else {
+              const offW = Math.min(960, Math.max(720, Math.round(w * 2.1)));
+              const offH = Math.min(1080, Math.max(760, Math.round(h * 1.9)));
+              if (!rasterOffCanvas) {
+                rasterOffCanvas = document.createElement("canvas");
+                rasterOffCtx = rasterOffCanvas.getContext("2d");
               }
-              ctx.stroke();
+              if (rasterOffCanvas.width !== offW || rasterOffCanvas.height !== offH) {
+                rasterOffCanvas.width = offW;
+                rasterOffCanvas.height = offH;
+              }
+              const offCx = offW * 0.5;
+              const offCy = offH * 0.80;
+              const offScale = 0.56;
+
+              rasterOffCtx.setTransform(1, 0, 0, 1, 0, 0);
+              rasterOffCtx.fillStyle = pal.bg;
+              rasterOffCtx.fillRect(0, 0, offW, offH);
+              rasterOffCtx.save();
+              rasterOffCtx.translate(offCx, offCy);
+              rasterOffCtx.scale(offScale, offScale);
+              rasterOffCtx.rotate(-hdgRad);
+              drawRasterLayers(rasterOffCtx, offScale, (offH * 0.55) / offScale, (offH * 0.30) / offScale);
+              rasterOffCtx.restore();
+
+              const startY = Math.max(0, Math.floor(Math.max(cam.horizonY + 24, h * 0.11)));
+              const stripH = 4;
+              for (let sy = startY; sy < h; sy += stripH) {
+                const pTop = cam.unprojectScreen(cx, sy);
+                const pBot = cam.unprojectScreen(cx, sy + stripH);
+                if (!pTop || !pBot) continue;
+                const zMid = cam.F - ((pTop.ry + pBot.ry) * 0.5) * cam.sinA;
+                if (zMid <= 10) continue;
+                const halfSpanRx = (w * 0.5) * (zMid / cam.F);
+                let sx0 = offCx - halfSpanRx * offScale;
+                let sw0 = (halfSpanRx * 2) * offScale;
+                let dx0 = 0, dw0 = w;
+                if (sx0 < 0) {
+                  const cut = -sx0 / sw0;
+                  dx0 += cut * dw0; dw0 -= cut * dw0;
+                  sw0 += sx0; sx0 = 0;
+                }
+                if (sx0 + sw0 > offW) {
+                  const cut = (sx0 + sw0 - offW) / sw0;
+                  dw0 -= cut * dw0;
+                  sw0 = offW - sx0;
+                }
+                if (sw0 <= 0.5 || dw0 <= 0.5) continue;
+                const rawSy = offCy + pTop.ry * offScale;
+                const rawSh = Math.max(0.5, (pBot.ry - pTop.ry) * offScale);
+                const sy0 = Math.max(0, rawSy);
+                const sh0 = Math.min(offH, rawSy + rawSh) - sy0;
+                if (sh0 <= 0.2) continue;
+                ctx.drawImage(rasterOffCanvas, sx0, sy0, sw0, sh0, dx0, sy, dw0, stripH + 0.7);
+              }
             }
-            ctx.setLineDash([]);
           }
 
-          // C) AKTIIVNE MARSRUUT
+          // C) AKTIIVNE MARSRUUT (2D JA 3D PERSPEKTIIV-LAIUSEGA)
           if (state.route && state.route.coords.length > 1) {
             const coords = state.route.coords;
             const drawProj = state.liveRiderProj || state.riderProj;
@@ -3905,115 +4363,99 @@
               ? Math.max(0, Math.min(coords.length - 2, drawProj.segIdx))
               : Math.max(0, Math.min(coords.length - 2, state.riderGeomIdx));
             const splitPt = drawProj ? drawProj.point : coords[splitSegIdx];
-            const pSplit = toMapXY(splitPt);
+            const rotSplit = toRotXY(splitPt);
 
             ctx.lineCap = "round";
             ctx.lineJoin = "round";
 
             if (splitSegIdx > 0 || (drawProj && drawProj.t > 0.001)) {
-              ctx.strokeStyle = pal.passed;
-              ctx.lineWidth = 6;
-              ctx.beginPath();
-              for (let i = 0; i <= splitSegIdx; i++) {
-                const p = toMapXY(coords[i]);
-                if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
-              }
-              ctx.lineTo(pSplit.x, pSplit.y);
-              ctx.stroke();
+              const passedPts = [];
+              for (let i = 0; i <= splitSegIdx; i++) passedPts.push(toRotXY(coords[i]));
+              passedPts.push(rotSplit);
+              drawRoutePolyline(ctx, passedPts, pal.passed, 6, [], cam);
             }
 
-            ctx.strokeStyle = pal.bg;
-            ctx.lineWidth = 10;
-            ctx.beginPath();
-            ctx.moveTo(pSplit.x, pSplit.y);
-            for (let i = splitSegIdx + 1; i < coords.length; i++) {
-              const p = toMapXY(coords[i]);
-              ctx.lineTo(p.x, p.y);
-            }
-            ctx.stroke();
-
-            ctx.strokeStyle = pal.route;
-            ctx.lineWidth = 6.5;
-            ctx.beginPath();
-            ctx.moveTo(pSplit.x, pSplit.y);
-            for (let i = splitSegIdx + 1; i < coords.length; i++) {
-              const p = toMapXY(coords[i]);
-              ctx.lineTo(p.x, p.y);
-            }
-            ctx.stroke();
+            const aheadPts = [rotSplit];
+            for (let i = splitSegIdx + 1; i < coords.length; i++) aheadPts.push(toRotXY(coords[i]));
+            drawRoutePolyline(ctx, aheadPts, pal.bg, 10, [], cam);
+            drawRoutePolyline(ctx, aheadPts, pal.route, 6.5, [], cam);
 
             if (state.destination) {
               const lastRoadPt = coords[coords.length - 1];
               if (distanceMeters(lastRoadPt, state.destination) > 15) {
-                const pEnd = toMapXY(lastRoadPt);
-                const pDest = toMapXY(state.destination);
-                ctx.strokeStyle = pal.accent;
-                ctx.lineWidth = 3;
-                ctx.setLineDash([6, 6]);
-                ctx.beginPath();
-                ctx.moveTo(pEnd.x, pEnd.y);
-                ctx.lineTo(pDest.x, pDest.y);
-                ctx.stroke();
-                ctx.setLineDash([]);
+                drawRoutePolyline(ctx, [toRotXY(lastRoadPt), toRotXY(state.destination)], pal.accent, 3, [6, 6], cam);
               }
             }
 
             const activeStep = state.route.steps[state.activeStepIdx];
             if (activeStep && state.radarRadiusM <= 5000) {
-              const mp = toMapXY(activeStep);
-              ctx.fillStyle = pal.accent;
-              ctx.beginPath();
-              ctx.arc(mp.x, mp.y, 8, 0, Math.PI * 2);
-              ctx.fill();
-              ctx.strokeStyle = pal.bg;
-              ctx.lineWidth = 2.5;
-              ctx.stroke();
+              const rStep = toRotXY(activeStep);
+              if (!cam.is3d || (rStep.ry <= cam.maxRy && rStep.ry >= cam.minRy)) {
+                const mp = cam.projectRot(rStep.rx, rStep.ry);
+                const dotR = cam.is3d ? Math.max(4.5, Math.min(11, 8 * mp.k)) : 8;
+                ctx.fillStyle = pal.accent;
+                ctx.beginPath();
+                ctx.arc(mp.sx, mp.sy, dotR, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = pal.bg;
+                ctx.lineWidth = 2.5;
+                ctx.stroke();
+              }
             }
           }
 
-          // D) TÄPNE SIHTPUNKTI SIHIK
+          // D) 3D HORISONDI HÄGUSUS (KUI 3D REŽIIM ON AKTIIVNE)
+          drawHorizonFog(ctx, cam, pal);
+
+          // E) TÄPNE SIHTPUNKTI SIHIK
           if (state.destination) {
-            const dp = toMapXY(state.destination);
-            drawTargetCrosshair(ctx, dp.x, dp.y, pal);
+            const rDest = toRotXY(state.destination);
+            if (!cam.is3d || (rDest.ry <= cam.maxRy && rDest.ry >= cam.minRy)) {
+              const dp = cam.projectRot(rDest.rx, rDest.ry);
+              const dScale = cam.is3d ? Math.max(0.68, Math.min(1.25, dp.k)) : 1;
+              drawTargetCrosshair(ctx, dp.sx, dp.sy, pal, dScale);
+            }
           }
 
-          // E) KUI KAARTI ON NIHUTATUD, JOONISTA SÕITJA TEGELIK GPS-NOOL KAARDILE
+          // F) KUI KAARTI ON NIHUTATUD, JOONISTA SÕITJA TEGELIK GPS-NOOL KAARDILE
           if (!state.followGps && hasValidGps()) {
-            const rp = toMapXY(state.gps.renderPos || { lat: state.gps.lat, lon: state.gps.lon });
-            drawRiderArrow(ctx, rp.x, rp.y, toRad(hdgInfo.deg), pal);
+            const rRider = toRotXY(state.gps.renderPos || { lat: state.gps.lat, lon: state.gps.lon });
+            if (!cam.is3d || (rRider.ry <= cam.maxRy && rRider.ry >= cam.minRy)) {
+              const rp = cam.projectRot(rRider.rx, rRider.ry);
+              drawRiderArrow(ctx, rp.sx, rp.sy, toRad(hdgInfo.deg) - hdgRad, pal, cam.pitch);
+            }
           }
-
-          ctx.restore();
         }
 
-        // F) KAUGUSRÕNGAS JA N/E/S/W KOMPASSIRING
+        // G) KAUGUSRÕNGAS JA N/E/S/W KOMPASSIRING (2D RING / 3D MAAPINNA ELLIPS)
         ctx.strokeStyle = pal.border;
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.arc(cx, cy, radiusPx * 0.5, 0, Math.PI * 2);
+        drawGroundRing(ctx, cam, radiusPx * 0.5);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        drawCompassRing(ctx, cx, cy, radiusPx, hdgRad, pal, 15);
+        drawCompassRing(ctx, cam, radiusPx, hdgRad, pal, 15);
 
-        // G) HUVIPUNKTID RINGI SEES (KLÕPSATAVAD)
+        // H) HUVIPUNKTID RINGI SEES (KLÕPSATAVAD)
         if (center && toMapXY) {
-          drawPoisInsideCircle(ctx, cx, cy, radiusPx, hdgRad, toMapXY, pal);
+          drawPoisInsideCircle(ctx, cam, radiusPx, hdgRad, toMapXY, pal);
         }
 
-        // H) KESKPUNKT: GPS-JÄLGIMISEL SÕITJA NOOL, VABAS VAATES KESKRIST
+        // I) KESKPUNKT: GPS-JÄLGIMISEL SÕITJA NOOL, VABAS VAATES KESKRIST
         if (state.followGps) {
+          const pGuide0 = cam.projectRot(0, -22);
+          const pGuide1 = cam.projectRot(0, -(radiusPx - 14));
           ctx.strokeStyle = pal.accent;
           ctx.lineWidth = 2;
           ctx.setLineDash([3, 5]);
           ctx.beginPath();
-          ctx.moveTo(cx, cy - 22);
-          ctx.lineTo(cx, cy - radiusPx + 14);
+          ctx.moveTo(pGuide0.sx, pGuide0.sy);
+          ctx.lineTo(pGuide1.sx, pGuide1.sy);
           ctx.stroke();
           ctx.setLineDash([]);
 
-          drawRiderArrow(ctx, cx, cy, 0, pal);
+          drawRiderArrow(ctx, cx, cy, 0, pal, cam.pitch);
         } else {
           ctx.strokeStyle = pal.accent;
           ctx.lineWidth = 2;
@@ -4023,7 +4465,7 @@
           ctx.stroke();
         }
 
-        // I) PIKA VAJUTUSE TÄITUV LAADIMISRÕNGAS SÕRME ÜMBER
+        // J) PIKA VAJUTUSE TÄITUV LAADIMISRÕNGAS SÕRME ÜMBER
         drawLongPressRing(ctx, pal);
       }
 
@@ -4090,6 +4532,19 @@
           }
         }
 
+        const targetPitch = state.view3d ? 1 : 0;
+        const pDiff = targetPitch - state.pitchFactor;
+        let animatingPitch = false;
+        if (Math.abs(pDiff) > 0.004) {
+          const pFactor = 1 - Math.exp(-10.5 * dtSec);
+          state.pitchFactor += pDiff * pFactor;
+          state.needsRedraw = true;
+          animatingPitch = true;
+        } else if (state.pitchFactor !== targetPitch) {
+          state.pitchFactor = targetPitch;
+          state.needsRedraw = true;
+        }
+
         const animateLongPress = longPress.active && !longPress.triggered;
         if (animateLongPress) {
           state.needsRedraw = true;
@@ -4097,7 +4552,7 @@
 
         const movingFast = liveMotion && liveMotion.animating && liveMotion.speedMps >= 10;
         const movingAny = liveMotion && liveMotion.animating;
-        const minFrameMs = (state.isInteracting || animateLongPress)
+        const minFrameMs = (state.isInteracting || animateLongPress || animatingPitch)
           ? 16
           : (movingFast ? 25 : (movingAny ? 33 : 50));
         if (state.needsRedraw && ts - state.lastDrawMs >= minFrameMs) {
@@ -4256,6 +4711,25 @@
         state.needsRedraw = true;
       });
 
+      function applyView3dMode(enabled, saveToStorage, instant) {
+        state.view3d = Boolean(enabled);
+        if (instant) state.pitchFactor = state.view3d ? 1 : 0;
+        if (el.view3dBtn) {
+          el.view3dBtn.textContent = state.view3d ? "VAADE: 3D" : "VAADE: 2D";
+          el.view3dBtn.classList.toggle("active", state.view3d);
+        }
+        if (saveToStorage) {
+          try { localStorage.setItem("motonav_view3d", state.view3d ? "1" : "0"); } catch (_) {}
+        }
+        state.needsRedraw = true;
+      }
+
+      el.view3dBtn.addEventListener("click", () => {
+        applyView3dMode(!state.view3d, true, false);
+        addLog("Kaardi vaade: " + (state.view3d ? "3D perspektiiv" : "2D pealtvaade"));
+        showToast(state.view3d ? "Vaade: 3D perspektiiv" : "Vaade: 2D pealtvaade", 1800);
+      });
+
       el.baseMapBtn.addEventListener("click", () => {
         const curIdx = BASE_MAP_ORDER.indexOf(state.baseMapMode);
         const nextId = BASE_MAP_ORDER[(curIdx + 1) % BASE_MAP_ORDER.length];
@@ -4341,11 +4815,14 @@
 
       addLog(`Käivitamine (${window.location.protocol}//${window.location.host || "kohalik"})`);
       let savedBaseMap = "graphic";
+      let savedView3d = false;
       try {
         const stored = localStorage.getItem("motonav_basemap_v2");
         if (stored && BASE_MAPS[stored]) savedBaseMap = stored;
+        savedView3d = localStorage.getItem("motonav_view3d") === "1";
       } catch (_) {}
       applyBaseMapMode(savedBaseMap, false);
+      applyView3dMode(savedView3d, false, true);
       initOpenFreeMapTileJson();
       renderManeuverIcon("straight");
       resizeCanvas();
