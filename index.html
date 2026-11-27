@@ -408,14 +408,14 @@
           <button id="poiMenuBtn" class="map-chip" type="button">HUVIPUNKTID</button>
           <button id="autoZoomBtn" class="map-chip active" type="button">SUUM: AUTO</button>
           <button id="orientBtn" class="map-chip" type="button">SUUND ÜLES</button>
-          <button id="baseMapBtn" class="map-chip" type="button">ALUS: LINNAKAART</button>
+          <button id="baseMapBtn" class="map-chip" type="button">ALUS: GRAAFIKA</button>
         </div>
 
         <div id="offrouteBanner" class="offroute-banner">
           <button id="recalcBtn" class="btn-primary" type="button">UUS TEE</button>
         </div>
 
-        <div id="mapCredit" class="osm-credit">© Esri, HERE, Garmin, OSM</div>
+        <div id="mapCredit" class="osm-credit">© OpenFreeMap · OpenStreetMap</div>
 
         <div class="canvas-controls-right">
           <button id="recenterBtn" class="fab recenter" type="button" title="Tagasi minu asukohta">◎</button>
@@ -534,13 +534,17 @@
         night: {
           bg: "#000000", border: "#4d4d4d", text: "#ffffff", muted: "#a0a0a0",
           accent: "#ffaa00", route: "#00e676", passed: "#555555",
-          roadMain: "#c8c8c8", roadMinor: "#9a9a9a", roadTrack: "#848484", roadPath: "#6f6f6f",
+          waterFill: "#0e4d92", waterStroke: "#2176d2", waterwayMajor: "#3395ff", waterwayMinor: "#1f7ae0",
+          roadHighway: "#f2f6fa", roadMain: "#cfd8e3", roadMinor: "#9aa8b8", roadService: "#738291", roadTrack: "#5d6b7a", roadPath: "#52606e",
+          labelPlace: "#e8eef5", labelStreet: "#cbd5e1", labelHalo: "#000000",
           cardBg: "rgba(0,0,0,0.88)"
         },
         day: {
           bg: "#ffffff", border: "#7a7a7a", text: "#000000", muted: "#4a4a4a",
           accent: "#d96b00", route: "#0066cc", passed: "#999999",
-          roadMain: "#383838", roadMinor: "#5a5a5a", roadTrack: "#727272", roadPath: "#888888",
+          waterFill: "#7ec4ff", waterStroke: "#3b8de0", waterwayMajor: "#1a73e8", waterwayMinor: "#3b8de0",
+          roadHighway: "#111827", roadMain: "#2b3648", roadMinor: "#4b5563", roadService: "#6b7280", roadTrack: "#808b99", roadPath: "#94a0ad",
+          labelPlace: "#0f172a", labelStreet: "#1f2937", labelHalo: "#ffffff",
           cardBg: "rgba(255,255,255,0.92)"
         }
       };
@@ -550,53 +554,48 @@
           id: "fuel", label: "Tanklad", code: "T", color: "#ff5252",
           overpass: ['["amenity"="fuel"]'],
           photonTags: ["amenity:fuel"],
-          photonQueries: ["tankla", "Olerex", "Alexela", "Circle K", "Neste", "Terminal"],
-          nominatimTerms: ["tankla", "fuel"],
+          photonQueries: ["tankla", "Olerex", "Circle K", "Alexela"],
+          nominatimTerms: ["tankla"],
           matchValues: ["fuel"]
         },
         {
           id: "food", label: "Söögikohad", code: "S", color: "#ff9800",
           overpass: ['["amenity"~"^(restaurant|cafe|fast_food|pub|bar|food_court|bistro)$"]'],
           photonTags: ["amenity:restaurant", "amenity:cafe", "amenity:fast_food", "amenity:pub"],
-          photonQueries: ["restoran", "kohvik", "pubi", "bistroo", "söögikoht", "Hesburger"],
-          nominatimTerms: ["restoran", "kohvik"],
+          photonQueries: ["restoran", "kohvik", "pubi"],
+          nominatimTerms: ["restoran"],
           matchValues: ["restaurant", "cafe", "fast_food", "pub", "bar", "biergarten", "food_court", "bistro"]
         },
         {
           id: "sleep", label: "Majutus", code: "M", color: "#29b6f6",
           overpass: ['["tourism"~"^(hotel|motel|guest_house|camp_site|hostel|chalet)$"]'],
           photonTags: ["tourism:hotel", "tourism:guest_house", "tourism:motel", "tourism:camp_site", "tourism:hostel"],
-          photonQueries: ["hotell", "külalistemaja", "puhkemaja", "kämping", "hostel"],
-          nominatimTerms: ["hotell", "külalistemaja"],
+          photonQueries: ["hotell", "külalistemaja", "puhkemaja"],
+          nominatimTerms: ["hotell"],
           matchValues: ["hotel", "motel", "guest_house", "camp_site", "hostel", "chalet", "apartment"]
         }
       ];
 
-      const BASE_MAP_ORDER = ["esri_streets", "maaamet", "osm_detail", "hybrid", "osm_vector"];
+      const BASE_MAP_ORDER = ["graphic", "maaamet", "hybrid"];
 
       const BASE_MAPS = {
-        esri_streets: {
-          id: "esri_streets",
-          label: "ALUS: LINNAKAART",
-          shortStatus: "Kaart: Esri/HERE",
-          credit: "© Esri, HERE, Garmin, OSM",
-          maxZoom: 19,
-          invertNight: true,
+        graphic: {
+          id: "graphic",
+          label: "ALUS: GRAAFIKA",
+          shortStatus: "Kaart: Graafiline",
+          credit: "© OpenFreeMap · OpenStreetMap",
+          isVectorGraphic: true,
+          maxZoom: 14,
+          invertNight: false,
           useVectorOverlay: false,
-          layers: [
-            {
-              id: "esri_street",
-              maxZoom: 19,
-              url: (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${z}/${y}/${x}`,
-              fallbackUrl: (z, x, y) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`
-            }
-          ]
+          layers: []
         },
         maaamet: {
           id: "maaamet",
           label: "ALUS: EESTI ETAK",
           shortStatus: "Kaart: Maa- ja Ruumiamet",
           credit: "© Maa- ja Ruumiamet · OSM",
+          isVectorGraphic: false,
           maxZoom: 18,
           invertNight: true,
           useVectorOverlay: false,
@@ -615,31 +614,12 @@
             }
           ]
         },
-        osm_detail: {
-          id: "osm_detail",
-          label: "ALUS: OSM TÄNAVAD",
-          shortStatus: "Kaart: OSM HD",
-          credit: "© OpenStreetMap · OSM-FR",
-          maxZoom: 20,
-          invertNight: true,
-          useVectorOverlay: false,
-          layers: [
-            {
-              id: "osm_fr",
-              maxZoom: 20,
-              url: (z, x, y) => {
-                const sub = ["a", "b", "c"][Math.abs(x + y) % 3];
-                return `https://${sub}.tile.openstreetmap.fr/osmfr/${z}/${x}/${y}.png`;
-              },
-              fallbackUrl: (z, x, y) => z <= 19 ? `https://tile.openstreetmap.org/${z}/${x}/${y}.png` : null
-            }
-          ]
-        },
         hybrid: {
           id: "hybrid",
           label: "ALUS: HÜBRIID",
           shortStatus: "Kaart: Satelliit + Tänavad",
           credit: "© Esri, HERE, Garmin, OSM",
+          isVectorGraphic: false,
           maxZoom: 19,
           invertNight: false,
           useVectorOverlay: false,
@@ -665,23 +645,6 @@
               fallbackUrl: null
             }
           ]
-        },
-        osm_vector: {
-          id: "osm_vector",
-          label: "ALUS: OSM + TEED",
-          shortStatus: "Teed: OSM+Overpass",
-          credit: "© OpenStreetMap · Overpass",
-          maxZoom: 19,
-          invertNight: true,
-          useVectorOverlay: true,
-          layers: [
-            {
-              id: "osm_std",
-              maxZoom: 19,
-              url: (z, x, y) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`,
-              fallbackUrl: null
-            }
-          ]
         }
       };
 
@@ -692,7 +655,13 @@
       ];
 
       const tileCache = new Map();
-      const MAX_TILES = 260;
+      const MAX_TILES = 160;
+      const vectorTileCache = new Map();
+      const MAX_VECTOR_TILES = 120;
+      let openFreeMapTileTemplate = "https://tiles.openfreemap.org/planet/latest/{z}/{x}/{y}.pbf";
+      const openFreeMapFallbackTemplate = "https://tiles.openfreemap.org/backup_planet/latest/{z}/{x}/{y}.pbf";
+      const poiCache = new Map();
+      const POI_CACHE_TTL_MS = 10 * 60 * 1000;
       const LONG_PRESS_MS = 600;
       const LONG_PRESS_VISUAL_DELAY_MS = 130;
       let toastTimer = null;
@@ -703,7 +672,7 @@
       const state = {
         mode: "route",
         orientMode: "heading",
-        baseMapMode: "esri_streets",
+        baseMapMode: "graphic",
         autoZoom: true,
         followGps: true,
         viewCenter: null,
@@ -826,36 +795,65 @@
         return fetch(url, opts).finally(() => clearTimeout(timer));
       }
 
+      function raceOverpassEndpoints(endpoints, body, timeoutMs, shouldCancel) {
+        return new Promise((resolve) => {
+          if (!endpoints.length) { resolve(null); return; }
+          let settled = false;
+          let pending = endpoints.length;
+          const ctrls = [];
+
+          const finish = (val) => {
+            if (settled) return;
+            settled = true;
+            for (let i = 0; i < ctrls.length; i++) {
+              try { ctrls[i].abort(); } catch (_) {}
+            }
+            resolve(val);
+          };
+
+          endpoints.forEach((endpoint) => {
+            const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+            if (ctrl) ctrls.push(ctrl);
+            const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch (_) {} }, timeoutMs) : null;
+            fetch(endpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+              body,
+              signal: ctrl ? ctrl.signal : undefined
+            }).then((res) => {
+              if (!res.ok) throw new Error("HTTP " + res.status);
+              return res.json();
+            }).then((json) => {
+              if (timer) clearTimeout(timer);
+              if (typeof shouldCancel === "function" && shouldCancel()) { finish(null); return; }
+              if (json && Array.isArray(json.elements)) {
+                finish(json);
+                return;
+              }
+              throw new Error("vigane vastus");
+            }).catch(() => {
+              if (timer) clearTimeout(timer);
+              pending--;
+              if (pending <= 0) finish(null);
+            });
+          });
+        });
+      }
+
       function enqueueOverpass(query, tag, shouldCancel) {
         const job = async () => {
           if (typeof shouldCancel === "function" && shouldCancel()) return null;
-          const waitMs = Math.max(0, 500 - (Date.now() - lastOverpassEndMs));
-          if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
-          if (typeof shouldCancel === "function" && shouldCancel()) return null;
-
           const body = "data=" + encodeURIComponent(query);
-          for (let i = 0; i < OVERPASS_ENDPOINTS.length; i++) {
-            if (typeof shouldCancel === "function" && shouldCancel()) return null;
-            const endpoint = OVERPASS_ENDPOINTS[i];
-            try {
-              const res = await fetchWithTimeout(endpoint, {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
-                body
-              }, 12000);
-              if (res.ok) {
-                const json = await res.json();
-                lastOverpassEndMs = Date.now();
-                return json;
-              }
-              addLog(`${tag} #${i + 1} HTTP ${res.status}`);
-            } catch (err) {
-              const reason = err && err.name === "AbortError" ? "aegus (12 s)" : (err.message || "võrguviga");
-              addLog(`${tag} #${i + 1}: ${reason}`);
-            }
+          const primary = OVERPASS_ENDPOINTS.slice(0, 2);
+          let json = await raceOverpassEndpoints(primary, body, 8500, shouldCancel);
+          if (!json && OVERPASS_ENDPOINTS.length > 2 && !(typeof shouldCancel === "function" && shouldCancel())) {
+            json = await raceOverpassEndpoints(OVERPASS_ENDPOINTS.slice(2), body, 8500, shouldCancel);
+          }
+          if (!json && !(typeof shouldCancel === "function" && shouldCancel())) {
+            addLog(`${tag}: serverid ei vastanud`);
           }
           lastOverpassEndMs = Date.now();
-          return null;
+          return json;
         };
 
         const p = overpassChain.then(job, job);
@@ -1803,7 +1801,7 @@
         };
       }
 
-      async function fetchPoisFromPhoton(cat, center, reqRadius) {
+      async function fetchPoisFromPhoton(cat, center, reqRadius, onBatch) {
         const results = [];
         const queries = cat.photonQueries || [];
         const bb = getSearchBbox(center, reqRadius);
@@ -1812,12 +1810,13 @@
           : "";
         const calls = queries.map(async (q) => {
           try {
-            const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=${center.lat.toFixed(4)}&lon=${center.lon.toFixed(4)}&bbox=${bb.w},${bb.s},${bb.e},${bb.n}&limit=30${tagParam}`;
-            const res = await fetchWithTimeout(url, { method: "GET" }, 6500);
+            const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=${center.lat.toFixed(4)}&lon=${center.lon.toFixed(4)}&bbox=${bb.w},${bb.s},${bb.e},${bb.n}&limit=25${tagParam}`;
+            const res = await fetchWithTimeout(url, { method: "GET" }, 4500);
             if (!res.ok) return;
             const data = await res.json();
             if (!data || !Array.isArray(data.features)) return;
 
+            const batch = [];
             for (let i = 0; i < data.features.length; i++) {
               const f = data.features[i];
               const coords = f.geometry && f.geometry.coordinates;
@@ -1840,11 +1839,16 @@
               if (!valMatch && !nameMatch) continue;
 
               const sub = [p.city || p.town || p.village || p.county, p.street].filter(Boolean).join(", ");
-              results.push({
+              const item = {
                 id: `ph_${p.osm_id || i}_${Math.round(c.lat * 10000)}`,
                 lat: c.lat, lon: c.lon, name, sub,
                 catId: cat.id, color: cat.color, code: cat.code, distM: d
-              });
+              };
+              batch.push(item);
+              results.push(item);
+            }
+            if (batch.length > 0 && typeof onBatch === "function") {
+              onBatch(batch);
             }
           } catch (_) {}
         });
@@ -1858,10 +1862,10 @@
         const parts = [];
         for (let i = 0; i < cat.overpass.length; i++) {
           const f = cat.overpass[i];
-          parts.push(`nwr${f}(${bb.s},${bb.w},${bb.n},${bb.e});`);
+          parts.push(`node${f}(${bb.s},${bb.w},${bb.n},${bb.e});way${f}(${bb.s},${bb.w},${bb.n},${bb.e});`);
         }
 
-        const query = `[out:json][timeout:14];(${parts.join("")});out center qt 280;`;
+        const query = `[out:json][timeout:8];(${parts.join("")});out center qt 160;`;
         const data = await enqueueOverpass(query, "POI-Overpass", shouldCancel);
         if (!data || !Array.isArray(data.elements)) return null;
 
@@ -1897,7 +1901,7 @@
         for (let t = 0; t < terms.length; t++) {
           try {
             const url = `https://nominatim.openstreetmap.org/search?format=json&bounded=1&viewbox=${bb.w},${bb.n},${bb.e},${bb.s}&limit=25&accept-language=et&q=${encodeURIComponent(terms[t])}`;
-            const res = await fetchWithTimeout(url, { method: "GET" }, 6500);
+            const res = await fetchWithTimeout(url, { method: "GET" }, 5000);
             if (!res.ok) continue;
             const arr = await res.json();
             if (!Array.isArray(arr)) continue;
@@ -1920,7 +1924,7 @@
         return out;
       }
 
-      async function fetchPois(force) {
+      async function fetchPois(force, bypassCache) {
         const cat = getPoiCat(state.pois.activeCatId);
         if (!cat) return;
         const center = getMapCenter();
@@ -1936,6 +1940,30 @@
         if (!force && state.pois.fetching) {
           updatePoiButtonLabel();
           return;
+        }
+
+        // Kohene vastus mälupuhvrist (kategooriate vahetamisel 0 ms!)
+        if (!bypassCache) {
+          const cached = poiCache.get(cat.id);
+          if (
+            cached &&
+            (Date.now() - cached.ts) < POI_CACHE_TTL_MS &&
+            cached.radiusM >= reqRadius &&
+            cached.items.length > 0 &&
+            distanceMeters(cached.center, center) < Math.max(500, cached.radiusM * 0.35)
+          ) {
+            state.pois.reqSeq += 1;
+            state.pois.items = cached.items;
+            state.pois.center = cached.center;
+            state.pois.radiusM = cached.radiusM;
+            state.pois.fetching = false;
+            const cnt = countPoisInCircle();
+            state.pois.sourceNote = cnt > 0 ? `${cnt} punkti (puhver)` : "tulemusi ei leitud";
+            updatePoiButtonLabel();
+            renderPoiModalContent();
+            state.needsRedraw = true;
+            return;
+          }
         }
 
         if (!force && state.pois.center && state.pois.radiusM >= reqRadius) {
@@ -1956,21 +1984,21 @@
         state.pois.sourceNote = "otsin...";
         updatePoiButtonLabel();
         renderPoiModalContent();
-        showToast(`Otsin: ${cat.label} (${formatDistance(reqRadius)})...`, 3000);
         addLog(`POI otsing: ${cat.label} (${formatDistance(reqRadius)})`);
 
-        const photonPromise = fetchPoisFromPhoton(cat, center, reqRadius).then((phItems) => {
-          if (isCancelled()) return;
-          if (phItems.length > 0) {
-            state.pois.items = mergePoiItems(state.pois.items, phItems, center, reqRadius);
-            state.pois.center = center;
-            state.pois.radiusM = Math.max(state.pois.radiusM, reqRadius);
-            state.pois.sourceNote = "kiire otsing OK, täiendan...";
-            addLog(`Photon POI: +${phItems.length} (${cat.label})`);
-            updatePoiButtonLabel();
-            renderPoiModalContent();
-            state.needsRedraw = true;
-          }
+        const applyBatch = (incoming, noteLabel) => {
+          if (isCancelled() || !incoming || incoming.length === 0) return;
+          state.pois.items = mergePoiItems(state.pois.items, incoming, center, reqRadius);
+          state.pois.center = center;
+          state.pois.radiusM = Math.max(state.pois.radiusM, reqRadius);
+          state.pois.sourceNote = noteLabel;
+          updatePoiButtonLabel();
+          renderPoiModalContent();
+          state.needsRedraw = true;
+        };
+
+        const photonPromise = fetchPoisFromPhoton(cat, center, reqRadius, (batch) => {
+          applyBatch(batch, "kiire otsing OK, täiendan...");
         });
 
         const overpassPromise = fetchPoisFromOverpass(cat, center, reqRadius, isCancelled).then((ovItems) => {
@@ -2002,6 +2030,14 @@
         state.pois.center = center;
         state.pois.radiusM = Math.max(state.pois.radiusM, reqRadius);
         state.pois.fetching = false;
+        if (state.pois.items.length > 0) {
+          poiCache.set(cat.id, {
+            center,
+            radiusM: state.pois.radiusM,
+            items: state.pois.items.slice(),
+            ts: Date.now()
+          });
+        }
         const cnt = countPoisInCircle();
         state.pois.sourceNote = cnt > 0 ? `${cnt} punkti ringis` : "tulemusi ei leitud";
         updatePoiButtonLabel();
@@ -2009,9 +2045,9 @@
         state.needsRedraw = true;
 
         if (cnt > 0) {
-          showToast(`${cat.label}: ${cnt} tk ringis · puuduta marsruudiks`, 3200);
+          showToast(`${cat.label}: ${cnt} tk ringis`, 2400);
         } else {
-          showToast(`${cat.label}: 0 tk (${formatDistance(reqRadius)}) — suurenda raadiust`, 3200);
+          showToast(`${cat.label}: 0 tk (${formatDistance(reqRadius)}) — suurenda raadiust`, 2800);
         }
       }
 
@@ -2027,10 +2063,365 @@
         });
       }
 
-      /* ===================== ALUSKAARDID JA TÄNAVATÄPSUSEGA KAARDIPLAADID ===================== */
+      /* ===================== KIIRE GRAAFILINE VEKTORKAART (MVT / OPENFREEMAP) ===================== */
+
+      const MVT_TEXT_DECODER = typeof TextDecoder !== "undefined" ? new TextDecoder("utf-8") : null;
+      const MVT_WANTED_LAYERS = new Set(["water", "waterway", "transportation", "transportation_name", "place"]);
+      const MVT_WANTED_KEYS = new Set(["class", "subclass", "name", "name:et", "name:latin", "ref", "rank", "ramp", "brunnel", "intermittent"]);
+
+      function mvtDecodeUtf8(bytes, start, end) {
+        if (MVT_TEXT_DECODER) return MVT_TEXT_DECODER.decode(bytes.subarray(start, end));
+        let s = "";
+        for (let i = start; i < end; i++) s += String.fromCharCode(bytes[i]);
+        return s;
+      }
+
+      function mvtReadVarint(buf, posObj) {
+        let val = 0, mult = 1;
+        while (posObj.p < buf.length) {
+          const b = buf[posObj.p++];
+          val += (b & 0x7f) * mult;
+          if ((b & 0x80) === 0) return val;
+          mult *= 128;
+        }
+        return val;
+      }
+
+      function mvtReadVarint32(buf, posObj) {
+        let shift = 0, val = 0;
+        while (posObj.p < buf.length) {
+          const b = buf[posObj.p++];
+          val |= (b & 0x7f) << shift;
+          if ((b & 0x80) === 0) return val >>> 0;
+          shift += 7;
+        }
+        return val >>> 0;
+      }
+
+      function mvtSkipField(buf, posObj, wireType) {
+        if (wireType === 0) mvtReadVarint(buf, posObj);
+        else if (wireType === 1) posObj.p += 8;
+        else if (wireType === 2) { const len = mvtReadVarint(buf, posObj); posObj.p += len; }
+        else if (wireType === 5) posObj.p += 4;
+      }
+
+      function mvtReadValue(buf, start, end) {
+        const pos = { p: start };
+        const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+        let res = null;
+        while (pos.p < end) {
+          const tag = mvtReadVarint32(buf, pos);
+          const field = tag >>> 3;
+          const wt = tag & 7;
+          if (field === 1 && wt === 2) {
+            const len = mvtReadVarint(buf, pos);
+            res = mvtDecodeUtf8(buf, pos.p, pos.p + len);
+            pos.p += len;
+          } else if (field === 2 && wt === 5) {
+            res = dv.getFloat32(pos.p, true); pos.p += 4;
+          } else if (field === 3 && wt === 1) {
+            res = dv.getFloat64(pos.p, true); pos.p += 8;
+          } else if ((field === 4 || field === 5) && wt === 0) {
+            res = mvtReadVarint(buf, pos);
+          } else if (field === 6 && wt === 0) {
+            const n = mvtReadVarint32(buf, pos);
+            res = (n >>> 1) ^ -(n & 1);
+          } else if (field === 7 && wt === 0) {
+            res = mvtReadVarint(buf, pos) !== 0;
+          } else {
+            mvtSkipField(buf, pos, wt);
+          }
+        }
+        return res;
+      }
+
+      function mvtDecodeGeometry(buf, start, end) {
+        const pos = { p: start };
+        const rings = [];
+        let cur = null;
+        let cx = 0, cy = 0;
+
+        while (pos.p < end) {
+          const cmdInt = mvtReadVarint32(buf, pos);
+          const cmd = cmdInt & 0x7;
+          const count = cmdInt >>> 3;
+          if (cmd === 1) {
+            for (let i = 0; i < count; i++) {
+              const dx = mvtReadVarint32(buf, pos);
+              const dy = mvtReadVarint32(buf, pos);
+              cx += (dx >>> 1) ^ -(dx & 1);
+              cy += (dy >>> 1) ^ -(dy & 1);
+              cur = [cx, cy];
+              rings.push(cur);
+            }
+          } else if (cmd === 2) {
+            if (!cur) { cur = [cx, cy]; rings.push(cur); }
+            for (let i = 0; i < count; i++) {
+              const dx = mvtReadVarint32(buf, pos);
+              const dy = mvtReadVarint32(buf, pos);
+              cx += (dx >>> 1) ^ -(dx & 1);
+              cy += (dy >>> 1) ^ -(dy & 1);
+              cur.push(cx, cy);
+            }
+          } else if (cmd === 7) {
+            // ClosePath — canvas closePath joonistamisel
+          } else {
+            break;
+          }
+        }
+        return rings;
+      }
+
+      function mvtRoadTier(cls) {
+        if (cls === "motorway" || cls === "trunk" || cls === "primary") return 4;
+        if (cls === "secondary" || cls === "tertiary") return 3;
+        if (cls === "minor") return 2;
+        if (cls === "service") return 1;
+        if (cls === "track" || cls === "path") return 0;
+        return -1;
+      }
+
+      function parseMvtTile(arrayBuffer) {
+        const buf = new Uint8Array(arrayBuffer);
+        const pos = { p: 0 };
+        const result = {
+          extent: 4096,
+          water: [],
+          waterwayMajor: [],
+          waterwayMinor: [],
+          roads: [[], [], [], [], []],
+          streetLabels: [],
+          placeLabels: []
+        };
+
+        while (pos.p < buf.length) {
+          const tag = mvtReadVarint32(buf, pos);
+          const field = tag >>> 3;
+          const wt = tag & 7;
+          if (field === 3 && wt === 2) {
+            const layerLen = mvtReadVarint(buf, pos);
+            const layerStart = pos.p;
+            const layerEnd = layerStart + layerLen;
+            pos.p = layerEnd;
+
+            // Esmalt leia kihi nimi, võtmed, väärtused ja extent
+            const lpos = { p: layerStart };
+            let layerName = "";
+            let extent = 4096;
+            const keys = [];
+            const values = [];
+            const rawFeatures = [];
+
+            while (lpos.p < layerEnd) {
+              const ltag = mvtReadVarint32(buf, lpos);
+              const lf = ltag >>> 3;
+              const lwt = ltag & 7;
+              if (lf === 1 && lwt === 2) {
+                const nlen = mvtReadVarint(buf, lpos);
+                layerName = mvtDecodeUtf8(buf, lpos.p, lpos.p + nlen);
+                lpos.p += nlen;
+              } else if (lf === 2 && lwt === 2) {
+                const flen = mvtReadVarint(buf, lpos);
+                rawFeatures.push([lpos.p, lpos.p + flen]);
+                lpos.p += flen;
+              } else if (lf === 3 && lwt === 2) {
+                const klen = mvtReadVarint(buf, lpos);
+                keys.push(mvtDecodeUtf8(buf, lpos.p, lpos.p + klen));
+                lpos.p += klen;
+              } else if (lf === 4 && lwt === 2) {
+                const vlen = mvtReadVarint(buf, lpos);
+                values.push(mvtReadValue(buf, lpos.p, lpos.p + vlen));
+                lpos.p += vlen;
+              } else if (lf === 5 && lwt === 0) {
+                extent = mvtReadVarint(buf, lpos) || 4096;
+              } else {
+                mvtSkipField(buf, lpos, lwt);
+              }
+            }
+
+            if (!MVT_WANTED_LAYERS.has(layerName)) continue;
+            result.extent = extent;
+
+            for (let fi = 0; fi < rawFeatures.length; fi++) {
+              const fStart = rawFeatures[fi][0], fEnd = rawFeatures[fi][1];
+              const fpos = { p: fStart };
+              let geomType = 0;
+              let tagsStart = 0, tagsEnd = 0;
+              let geomStart = 0, geomEnd = 0;
+
+              while (fpos.p < fEnd) {
+                const ftag = mvtReadVarint32(buf, fpos);
+                const ff = ftag >>> 3;
+                const fwt = ftag & 7;
+                if (ff === 2 && fwt === 2) {
+                  const len = mvtReadVarint(buf, fpos);
+                  tagsStart = fpos.p; tagsEnd = fpos.p + len;
+                  fpos.p += len;
+                } else if (ff === 3 && fwt === 0) {
+                  geomType = mvtReadVarint32(buf, fpos);
+                } else if (ff === 4 && fwt === 2) {
+                  const len = mvtReadVarint(buf, fpos);
+                  geomStart = fpos.p; geomEnd = fpos.p + len;
+                  fpos.p += len;
+                } else {
+                  mvtSkipField(buf, fpos, fwt);
+                }
+              }
+
+              if (geomEnd <= geomStart) continue;
+
+              const props = {};
+              if (tagsEnd > tagsStart) {
+                const tpos = { p: tagsStart };
+                while (tpos.p < tagsEnd) {
+                  const ki = mvtReadVarint32(buf, tpos);
+                  const vi = mvtReadVarint32(buf, tpos);
+                  const k = keys[ki];
+                  if (k && MVT_WANTED_KEYS.has(k)) props[k] = values[vi];
+                }
+              }
+
+              if (layerName === "water" && geomType === 3) {
+                const rings = mvtDecodeGeometry(buf, geomStart, geomEnd);
+                if (rings.length) result.water.push(rings);
+              } else if (layerName === "waterway" && geomType === 2) {
+                const lines = mvtDecodeGeometry(buf, geomStart, geomEnd);
+                const cls = props.class || "";
+                const target = (cls === "river" || cls === "canal") ? result.waterwayMajor : result.waterwayMinor;
+                for (let li = 0; li < lines.length; li++) {
+                  if (lines[li].length >= 4) target.push(lines[li]);
+                }
+              } else if (layerName === "transportation" && geomType === 2) {
+                const tier = mvtRoadTier(props.class);
+                if (tier < 0) continue;
+                const lines = mvtDecodeGeometry(buf, geomStart, geomEnd);
+                const bucket = result.roads[tier];
+                for (let li = 0; li < lines.length; li++) {
+                  if (lines[li].length >= 4) bucket.push(lines[li]);
+                }
+              } else if (layerName === "transportation_name" && geomType === 2) {
+                const text = props["name:et"] || props.name || props["name:latin"] || props.ref;
+                if (!text) continue;
+                const tier = mvtRoadTier(props.class);
+                if (tier < 2) continue;
+                const lines = mvtDecodeGeometry(buf, geomStart, geomEnd);
+                if (!lines.length || lines[0].length < 4) continue;
+                const pts = lines[0];
+                const midIdx = ((pts.length / 2) >> 1) * 2;
+                result.streetLabels.push({
+                  x: pts[midIdx],
+                  y: pts[midIdx + 1],
+                  text: String(text),
+                  tier
+                });
+              } else if (layerName === "place" && geomType === 1) {
+                const text = props["name:et"] || props.name || props["name:latin"];
+                if (!text) continue;
+                const cls = props.class || "";
+                let prio = 0;
+                if (cls === "city") prio = 4;
+                else if (cls === "town") prio = 3;
+                else if (cls === "village" || cls === "suburb") prio = 2;
+                else if (cls === "hamlet" || cls === "quarter" || cls === "neighbourhood") prio = 1;
+                if (prio === 0) continue;
+                const pts = mvtDecodeGeometry(buf, geomStart, geomEnd);
+                if (!pts.length || pts[0].length < 2) continue;
+                result.placeLabels.push({
+                  x: pts[0][0],
+                  y: pts[0][1],
+                  text: String(text),
+                  prio
+                });
+              }
+            }
+          } else {
+            mvtSkipField(buf, pos, wt);
+          }
+        }
+        return result;
+      }
+
+      async function maybeGunzipBuffer(ab) {
+        const u8 = new Uint8Array(ab);
+        if (u8.length >= 2 && u8[0] === 0x1f && u8[1] === 0x8b && typeof DecompressionStream !== "undefined") {
+          const ds = new DecompressionStream("gzip");
+          const stream = new Blob([ab]).stream().pipeThrough(ds);
+          return await new Response(stream).arrayBuffer();
+        }
+        return ab;
+      }
+
+      function initOpenFreeMapTileJson() {
+        fetchWithTimeout("https://tiles.openfreemap.org/planet", { method: "GET" }, 5000)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((tj) => {
+            if (tj && Array.isArray(tj.tiles) && tj.tiles[0]) {
+              openFreeMapTileTemplate = tj.tiles[0];
+            }
+          })
+          .catch(() => {});
+      }
+
+      function peekVectorTile(z, tx, ty) {
+        if (z < 0 || z > 14) return null;
+        const maxT = Math.pow(2, z);
+        const wrapX = ((tx % maxT) + maxT) % maxT;
+        if (ty < 0 || ty >= maxT) return null;
+        return vectorTileCache.get(`${z}/${wrapX}/${ty}`) || null;
+      }
+
+      function getVectorTile(z, tx, ty) {
+        if (z < 0 || z > 14) return null;
+        const maxT = Math.pow(2, z);
+        const wrapX = ((tx % maxT) + maxT) % maxT;
+        if (ty < 0 || ty >= maxT) return null;
+
+        const key = `${z}/${wrapX}/${ty}`;
+        const existing = vectorTileCache.get(key);
+        if (existing) {
+          vectorTileCache.delete(key);
+          vectorTileCache.set(key, existing);
+          return existing;
+        }
+
+        if (vectorTileCache.size >= MAX_VECTOR_TILES) {
+          const firstKey = vectorTileCache.keys().next().value;
+          vectorTileCache.delete(firstKey);
+        }
+
+        const entry = { ready: false, failed: false, data: null };
+        vectorTileCache.set(key, entry);
+
+        const buildUrl = (tpl) => tpl.replace("{z}", z).replace("{x}", wrapX).replace("{y}", ty);
+        const loadFrom = async (tpl) => {
+          const res = await fetchWithTimeout(buildUrl(tpl), { method: "GET" }, 7000);
+          if (res.status === 204 || res.status === 404) {
+            return { extent: 4096, water: [], waterwayMajor: [], waterwayMinor: [], roads: [[], [], [], [], []], streetLabels: [], placeLabels: [] };
+          }
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const rawAb = await res.arrayBuffer();
+          const ab = await maybeGunzipBuffer(rawAb);
+          return parseMvtTile(ab);
+        };
+
+        loadFrom(openFreeMapTileTemplate)
+          .catch(() => loadFrom(openFreeMapFallbackTemplate))
+          .then((parsed) => {
+            entry.data = parsed;
+            entry.ready = true;
+            state.needsRedraw = true;
+          })
+          .catch(() => {
+            entry.failed = true;
+          });
+
+        return entry;
+      }
+
+      /* ===================== ALUSKAARDID JA KAARDIPLAADID ===================== */
 
       function getActiveBaseMap() {
-        return BASE_MAPS[state.baseMapMode] || BASE_MAPS.esri_streets;
+        return BASE_MAPS[state.baseMapMode] || BASE_MAPS.graphic;
       }
 
       function isTileInEstonia(z, tx, ty) {
@@ -2041,7 +2432,7 @@
       }
 
       function applyBaseMapMode(modeId, saveToStorage) {
-        const validId = BASE_MAPS[modeId] ? modeId : "esri_streets";
+        const validId = BASE_MAPS[modeId] ? modeId : "graphic";
         const cfg = BASE_MAPS[validId];
         state.baseMapMode = validId;
         state.currentTileZ = null;
@@ -2051,7 +2442,7 @@
           el.roadsStatus.textContent = cfg.shortStatus;
         }
         if (saveToStorage) {
-          try { localStorage.setItem("motonav_basemap", validId); } catch (_) {}
+          try { localStorage.setItem("motonav_basemap_v2", validId); } catch (_) {}
         }
         if (cfg.useVectorOverlay && hasValidGps()) {
           fetchNearbyRoads(false);
@@ -2077,7 +2468,6 @@
         const key = `${layerCfg.id}/${z}/${wrapX}/${ty}`;
         const existing = tileCache.get(key);
         if (existing) {
-          // LRU värskendus
           tileCache.delete(key);
           tileCache.set(key, existing);
           return existing;
@@ -3124,10 +3514,10 @@
         if (center) {
           const cosLat = Math.cos(toRad(center.lat));
           const bm = getActiveBaseMap();
-          const dprBoost = Math.min(0.65, Math.log2(Math.max(1, window.devicePixelRatio || 1)) * 0.5);
-          const exactZ = Math.log2(156543.03392 * cosLat * pxPerM) + dprBoost + 0.25;
+          const dprBoost = bm.isVectorGraphic ? 0 : Math.min(0.65, Math.log2(Math.max(1, window.devicePixelRatio || 1)) * 0.5);
+          const exactZ = Math.log2(156543.03392 * cosLat * pxPerM) + dprBoost + (bm.isVectorGraphic ? 0 : 0.25);
           if (state.currentTileZ === null || Math.abs(exactZ - state.currentTileZ) > 0.42 || state.currentTileZ > bm.maxZoom) {
-            state.currentTileZ = Math.max(6, Math.min(bm.maxZoom, Math.round(exactZ)));
+            state.currentTileZ = Math.max(4, Math.min(bm.maxZoom, Math.round(exactZ)));
           }
           const z = state.currentTileZ;
           const tileSizePx = (40075016.68557849 * cosLat / Math.pow(2, z)) * pxPerM;
@@ -3145,8 +3535,250 @@
           ctx.translate(cx, cy);
           ctx.rotate(-hdgRad);
 
-          // A) TÄNAVATÄPSUSEGA ALUSKAARDID (LINNAKAART / EESTI ETAK / OSM HD / HÜBRIID)
-          if (bm.layers && bm.layers.length > 0) {
+          // A0) KIIRE GRAAFILINE VEKTORKAART (MUST/VALGE + HELEDAD/TUMEDAD TEED + ALATI SININE VESI)
+          if (bm.isVectorGraphic) {
+            const reachPx = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy));
+            const reachSq = reachPx * reachPx;
+            const spanTiles = Math.min(4, Math.ceil(reachPx / tileSizePx) + 1);
+            const baseTx = Math.floor(centerTile.x);
+            const baseTy = Math.floor(centerTile.y);
+
+            const drawTiles = [];
+            for (let dxT = -spanTiles; dxT <= spanTiles; dxT++) {
+              for (let dyT = -spanTiles; dyT <= spanTiles; dyT++) {
+                const tx = baseTx + dxT;
+                const ty = baseTy + dyT;
+                const drawX = (tx - centerTile.x) * tileSizePx;
+                const drawY = (ty - centerTile.y) * tileSizePx;
+                const nearX = Math.max(drawX, 0, -(drawX + tileSizePx));
+                const nearY = Math.max(drawY, 0, -(drawY + tileSizePx));
+                if (nearX * nearX + nearY * nearY > reachSq) continue;
+                const entry = getVectorTile(z, tx, ty);
+                if (entry && entry.ready && entry.data) {
+                  drawTiles.push({
+                    data: entry.data,
+                    drawX, drawY, size: tileSizePx,
+                    clipX: drawX, clipY: drawY, clipSize: tileSizePx
+                  });
+                } else {
+                  for (let dz = 1; dz <= 2; dz++) {
+                    const pz = z - dz;
+                    if (pz < 4) break;
+                    const scale = Math.pow(2, dz);
+                    const ptx = Math.floor(tx / scale);
+                    const pty = Math.floor(ty / scale);
+                    const parent = peekVectorTile(pz, ptx, pty);
+                    if (parent && parent.ready && parent.data) {
+                      const pSize = tileSizePx * scale;
+                      const pCenter = latLonToTileXY(center.lat, center.lon, pz);
+                      const pDrawX = (ptx - pCenter.x) * pSize;
+                      const pDrawY = (pty - pCenter.y) * pSize;
+                      drawTiles.push({
+                        data: parent.data,
+                        drawX: pDrawX, drawY: pDrawY, size: pSize,
+                        clipX: drawX, clipY: drawY, clipSize: tileSizePx
+                      });
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+
+            // 1) VEEKOGUD JA JÕED — ALATI SININE NII ÖÖ- KUI PÄEVAREŽIIMIS
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            const riverW = Math.max(1.8, Math.min(4.5, pxPerM * 7));
+            const streamW = Math.max(1.0, Math.min(2.2, pxPerM * 3));
+            const showStreams = state.radarRadiusM <= 6000;
+
+            for (let ti = 0; ti < drawTiles.length; ti++) {
+              const dt = drawTiles[ti];
+              const d = dt.data;
+              if (!d.water.length && !d.waterwayMajor.length && (!showStreams || !d.waterwayMinor.length)) continue;
+              const s = dt.size / (d.extent || 4096);
+              const ox = dt.drawX, oy = dt.drawY;
+
+              ctx.save();
+              ctx.beginPath();
+              ctx.rect(dt.clipX - 0.5, dt.clipY - 0.5, dt.clipSize + 1, dt.clipSize + 1);
+              ctx.clip();
+
+              if (d.water.length) {
+                ctx.fillStyle = pal.waterFill;
+                for (let wi = 0; wi < d.water.length; wi++) {
+                  const rings = d.water[wi];
+                  ctx.beginPath();
+                  for (let ri = 0; ri < rings.length; ri++) {
+                    const pts = rings[ri];
+                    if (pts.length < 6) continue;
+                    ctx.moveTo(ox + pts[0] * s, oy + pts[1] * s);
+                    for (let pi = 2; pi < pts.length; pi += 2) {
+                      ctx.lineTo(ox + pts[pi] * s, oy + pts[pi + 1] * s);
+                    }
+                    ctx.closePath();
+                  }
+                  ctx.fill("evenodd");
+                }
+              }
+
+              if (showStreams && d.waterwayMinor.length) {
+                ctx.strokeStyle = pal.waterwayMinor;
+                ctx.lineWidth = streamW;
+                ctx.beginPath();
+                for (let li = 0; li < d.waterwayMinor.length; li++) {
+                  const pts = d.waterwayMinor[li];
+                  ctx.moveTo(ox + pts[0] * s, oy + pts[1] * s);
+                  for (let pi = 2; pi < pts.length; pi += 2) {
+                    ctx.lineTo(ox + pts[pi] * s, oy + pts[pi + 1] * s);
+                  }
+                }
+                ctx.stroke();
+              }
+
+              if (d.waterwayMajor.length) {
+                ctx.strokeStyle = pal.waterwayMajor;
+                ctx.lineWidth = riverW;
+                ctx.beginPath();
+                for (let li = 0; li < d.waterwayMajor.length; li++) {
+                  const pts = d.waterwayMajor[li];
+                  ctx.moveTo(ox + pts[0] * s, oy + pts[1] * s);
+                  for (let pi = 2; pi < pts.length; pi += 2) {
+                    ctx.lineTo(ox + pts[pi] * s, oy + pts[pi + 1] * s);
+                  }
+                }
+                ctx.stroke();
+              }
+
+              ctx.restore();
+            }
+
+            // 2) GRAAFILISED TEED JA TÄNAVAD (HELEDAD MUSTAL / TUMEDAD VALGEL)
+            const zoomScale = Math.max(0.65, Math.min(1.7, Math.sqrt(pxPerM * 1.45)));
+            const roadStyles = [
+              { show: state.radarRadiusM <= 2200, col: pal.roadTrack,   w: 1.15 * zoomScale, dash: [5, 4] },
+              { show: state.radarRadiusM <= 1200, col: pal.roadService, w: 1.35 * zoomScale, dash: [] },
+              { show: state.radarRadiusM <= 6500, col: pal.roadMinor,   w: 1.95 * zoomScale, dash: [] },
+              { show: true,                       col: pal.roadMain,    w: 2.75 * zoomScale, dash: [] },
+              { show: true,                       col: pal.roadHighway, w: 3.75 * zoomScale, dash: [] }
+            ];
+
+            for (let ti = 0; ti < drawTiles.length; ti++) {
+              const dt = drawTiles[ti];
+              const d = dt.data;
+              const s = dt.size / (d.extent || 4096);
+              const ox = dt.drawX, oy = dt.drawY;
+
+              ctx.save();
+              ctx.beginPath();
+              ctx.rect(dt.clipX - 0.5, dt.clipY - 0.5, dt.clipSize + 1, dt.clipSize + 1);
+              ctx.clip();
+
+              for (let tier = 0; tier < roadStyles.length; tier++) {
+                const st = roadStyles[tier];
+                if (!st.show) continue;
+                const lines = d.roads[tier];
+                if (!lines || !lines.length) continue;
+
+                ctx.strokeStyle = st.col;
+                ctx.lineWidth = st.w;
+                ctx.setLineDash(st.dash);
+                ctx.beginPath();
+                for (let li = 0; li < lines.length; li++) {
+                  const pts = lines[li];
+                  ctx.moveTo(ox + pts[0] * s, oy + pts[1] * s);
+                  for (let pi = 2; pi < pts.length; pi += 2) {
+                    ctx.lineTo(ox + pts[pi] * s, oy + pts[pi + 1] * s);
+                  }
+                }
+                ctx.stroke();
+              }
+              ctx.setLineDash([]);
+              ctx.restore();
+            }
+
+            // 3) PÜSTIPIDISED LINNA-, ASULA- JA TÄNAVANIMED (KATTUMISE VÄLTIMISEGA)
+            const cosH = Math.cos(hdgRad);
+            const sinH = Math.sin(hdgRad);
+            const candidates = [];
+            const showMinorNames = state.radarRadiusM <= 1100;
+            const showMainNames = state.radarRadiusM <= 3500;
+            const minPlacePrio = state.radarRadiusM > 25000 ? 3 : (state.radarRadiusM > 6000 ? 2 : 1);
+
+            for (let ti = 0; ti < drawTiles.length; ti++) {
+              const dt = drawTiles[ti];
+              const d = dt.data;
+              const s = dt.size / (d.extent || 4096);
+              const ox = dt.drawX, oy = dt.drawY;
+
+              for (let i = 0; i < d.placeLabels.length; i++) {
+                const pl = d.placeLabels[i];
+                if (pl.prio < minPlacePrio) continue;
+                const mx = ox + pl.x * s;
+                const my = oy + pl.y * s;
+                if (mx < dt.clipX || mx > dt.clipX + dt.clipSize || my < dt.clipY || my > dt.clipY + dt.clipSize) continue;
+                candidates.push({ mx, my, text: pl.text, isPlace: true, prio: 10 + pl.prio });
+              }
+
+              if (showMainNames) {
+                for (let i = 0; i < d.streetLabels.length; i++) {
+                  const sl = d.streetLabels[i];
+                  if (sl.tier <= 2 && !showMinorNames) continue;
+                  const mx = ox + sl.x * s;
+                  const my = oy + sl.y * s;
+                  if (mx < dt.clipX || mx > dt.clipX + dt.clipSize || my < dt.clipY || my > dt.clipY + dt.clipSize) continue;
+                  candidates.push({ mx, my, text: sl.text, isPlace: false, prio: sl.tier });
+                }
+              }
+            }
+
+            candidates.sort((a, b) => b.prio - a.prio);
+            const placedBoxes = [];
+            const seenTexts = new Set();
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.lineJoin = "round";
+
+            for (let i = 0; i < candidates.length && placedBoxes.length < 28; i++) {
+              const c = candidates[i];
+              const normTxt = c.text.toLowerCase();
+              if (seenTexts.has(normTxt)) continue;
+
+              const sx = cx + c.mx * cosH + c.my * sinH;
+              const sy = cy - c.mx * sinH + c.my * cosH;
+              if (sx < 36 || sx > w - 36 || sy < 44 || sy > h - 26) continue;
+
+              const fontSize = c.isPlace ? (c.prio >= 13 ? 13 : 11) : 10;
+              const halfW = Math.min(72, c.text.length * fontSize * 0.34) + 8;
+              const halfH = fontSize * 0.75 + 6;
+              let overlaps = false;
+              for (let j = 0; j < placedBoxes.length; j++) {
+                const b = placedBoxes[j];
+                if (Math.abs(sx - b.sx) < halfW + b.halfW && Math.abs(sy - b.sy) < halfH + b.halfH) {
+                  overlaps = true;
+                  break;
+                }
+              }
+              if (overlaps) continue;
+
+              placedBoxes.push({ sx, sy, halfW, halfH });
+              seenTexts.add(normTxt);
+
+              ctx.save();
+              ctx.translate(c.mx, c.my);
+              ctx.rotate(hdgRad);
+              ctx.font = `${c.isPlace ? 800 : 700} ${fontSize}px system-ui, sans-serif`;
+              ctx.strokeStyle = pal.labelHalo;
+              ctx.lineWidth = 3.2;
+              ctx.strokeText(c.text, 0, 0);
+              ctx.fillStyle = c.isPlace ? pal.labelPlace : pal.labelStreet;
+              ctx.fillText(c.text, 0, 0);
+              ctx.restore();
+            }
+          }
+
+          // A) RASTER-ALUSKAARDID (EESTI ETAK / HÜBRIID)
+          if (!bm.isVectorGraphic && bm.layers && bm.layers.length > 0) {
             const maxReachPx = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy)) + tileSizePx;
             const spanTiles = Math.min(5, Math.ceil(maxReachPx / tileSizePx));
             const baseTx = Math.floor(centerTile.x);
@@ -3580,7 +4212,7 @@
         el.poiModal.classList.remove("open");
         state.needsRedraw = true;
       });
-      el.poiRefreshBtn.addEventListener("click", () => fetchPois(true));
+      el.poiRefreshBtn.addEventListener("click", () => fetchPois(true, true));
       el.poiClearBtn.addEventListener("click", () => {
         state.pois.reqSeq += 1;
         state.pois.fetching = false;
@@ -3683,7 +4315,15 @@
       el.hideCtaBtn.addEventListener("click", () => { state.ctaDismissed = true; updateGpsUI(); });
       el.retryGpsBtn.addEventListener("click", () => startGps(false));
       el.retryNetBtn.addEventListener("click", () => startGps(true));
-      el.reloadRoadsBtn.addEventListener("click", () => fetchNearbyRoads(true));
+      el.reloadRoadsBtn.addEventListener("click", () => {
+        if (getActiveBaseMap().isVectorGraphic) {
+          vectorTileCache.clear();
+          state.needsRedraw = true;
+          addLog("Vektorkaardi puhver tühjendatud");
+        } else {
+          fetchNearbyRoads(true);
+        }
+      });
       el.compassPermBtn.addEventListener("click", () => {
         if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
           DeviceOrientationEvent.requestPermission().then((r) => {
@@ -3700,12 +4340,13 @@
       window.addEventListener("resize", resizeCanvas);
 
       addLog(`Käivitamine (${window.location.protocol}//${window.location.host || "kohalik"})`);
-      let savedBaseMap = "esri_streets";
+      let savedBaseMap = "graphic";
       try {
-        const stored = localStorage.getItem("motonav_basemap");
+        const stored = localStorage.getItem("motonav_basemap_v2");
         if (stored && BASE_MAPS[stored]) savedBaseMap = stored;
       } catch (_) {}
       applyBaseMapMode(savedBaseMap, false);
+      initOpenFreeMapTileJson();
       renderManeuverIcon("straight");
       resizeCanvas();
       updateScaleBadge();
