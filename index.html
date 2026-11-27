@@ -553,28 +553,10 @@
           matchValues: ["fuel"]
         },
         {
-          id: "food", label: "Söögikohad", code: "S", color: "#ff9800",
-          overpass: ['["amenity"~"^(restaurant|cafe|fast_food|pub|bar|food_court|bistro)$"]'],
-          photonQueries: ["restoran", "kohvik", "pubi", "bistroo"],
-          matchValues: ["restaurant", "cafe", "fast_food", "pub", "bar", "biergarten", "food_court", "bistro"]
-        },
-        {
           id: "sleep", label: "Majutus", code: "M", color: "#29b6f6",
           overpass: ['["tourism"~"^(hotel|motel|guest_house|camp_site|hostel)$"]'],
           photonQueries: ["hotell", "külalistemaja", "puhkemaja", "kämping"],
           matchValues: ["hotel", "motel", "guest_house", "camp_site", "hostel", "chalet", "apartment"]
-        },
-        {
-          id: "repair", label: "Moto / Remont", code: "R", color: "#00e5ff",
-          overpass: ['["shop"~"^(motorcycle|motorcycle_repair|car_repair|tyres)$"]', '["amenity"="motorcycle_parking"]'],
-          photonQueries: ["autoremont", "rehvitöökoda", "motopood"],
-          matchValues: ["motorcycle", "motorcycle_repair", "car_repair", "tyres", "motorcycle_parking", "car_parts"]
-        },
-        {
-          id: "rest", label: "Puhkeala / WC", code: "P", color: "#69f0ae",
-          overpass: ['["tourism"="picnic_site"]', '["amenity"="toilets"]', '["highway"="rest_area"]'],
-          photonQueries: ["RMK", "lõkkekoht", "puhkeala"],
-          matchValues: ["picnic_site", "toilets", "rest_area", "camp_site", "park", "parking"]
         }
       ];
 
