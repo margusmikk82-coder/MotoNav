@@ -1,0 +1,3117 @@
+<!DOCTYPE html>
+<html lang="et">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#000000" />
+  <title>MotoNav MGRS</title>
+  <style>
+    :root {
+      --bg: #000000;
+      --surface: #121212;
+      --surface-2: #1f1f1f;
+      --text: #ffffff;
+      --muted: #a0a0a0;
+      --border: #333333;
+      --accent: #ffaa00;
+      --ok: #00e676;
+      --warn: #ffb300;
+      --err: #ff3d57;
+    }
+
+    body.day {
+      --bg: #ffffff;
+      --surface: #f2f2f2;
+      --surface-2: #e2e2e2;
+      --text: #000000;
+      --muted: #4a4a4a;
+      --border: #bdbdbd;
+      --accent: #d96b00;
+      --ok: #008a3e;
+      --warn: #b36b00;
+      --err: #c62828;
+    }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+      overscroll-behavior: none;
+    }
+
+    button { user-select: none; touch-action: manipulation; }
+    button:active { transform: scale(0.96); opacity: 0.78; }
+
+    .err-bar {
+      display: none; background: #c62828; color: #ffffff;
+      padding: 8px 10px; font-size: 13px; font-weight: 700; word-break: break-word;
+    }
+    .err-bar.show { display: block; }
+
+    .app {
+      display: flex; flex-direction: column;
+      height: 100vh; height: 100dvh;
+      max-width: 680px; margin: 0 auto;
+    }
+
+    .topbar {
+      display: flex; align-items: center; gap: 6px; padding: 8px;
+      background: var(--surface); border-bottom: 2px solid var(--border); flex-shrink: 0;
+    }
+
+    .gps-pill {
+      display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 10px;
+      border-radius: 10px; border: 2px solid var(--border);
+      background: var(--surface-2); color: var(--text);
+      font-weight: 700; font-size: 13px; cursor: pointer; flex: 1; text-align: left;
+    }
+
+    .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--err); flex-shrink: 0; }
+    .dot.ok { background: var(--ok); }
+    .dot.warn { background: var(--warn); }
+
+    .icon-btn {
+      min-width: 46px; min-height: 44px; padding: 0 9px;
+      border-radius: 10px; border: 2px solid var(--border);
+      background: var(--surface-2); color: var(--text);
+      font-weight: 800; font-size: 13px; cursor: pointer;
+    }
+    .icon-btn.active { border-color: var(--ok); color: var(--ok); }
+
+    .search-wrap {
+      position: relative; padding: 8px;
+      background: var(--surface); border-bottom: 2px solid var(--border); flex-shrink: 0;
+    }
+
+    .search-row { display: flex; gap: 6px; }
+
+    .search-input {
+      flex: 1; min-height: 44px; padding: 0 12px;
+      border-radius: 10px; border: 2px solid var(--border);
+      background: var(--bg); color: var(--text);
+      font-size: 15px; font-weight: 600; outline: none;
+    }
+    .search-input:focus { border-color: var(--accent); }
+
+    .btn-primary {
+      min-height: 44px; min-width: 62px; padding: 0 14px;
+      border-radius: 10px; border: none; background: var(--accent);
+      color: #000000; font-size: 14px; font-weight: 900; cursor: pointer;
+    }
+    .btn-primary:disabled { opacity: 0.4; }
+
+    .results {
+      position: absolute; left: 8px; right: 8px; top: 56px;
+      background: var(--surface); border: 2px solid var(--accent);
+      border-radius: 10px; z-index: 40; max-height: 52vh; overflow-y: auto; display: none;
+    }
+    .results.open { display: block; }
+
+    .result-item {
+      width: 100%; padding: 12px; text-align: left;
+      background: transparent; color: var(--text); border: none;
+      border-bottom: 1px solid var(--border); font-size: 15px; cursor: pointer;
+    }
+    .result-item:last-child { border-bottom: none; }
+    .result-item small {
+      display: block; color: var(--muted); margin-top: 3px; font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+    .maneuver-box {
+      display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+      background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+
+    .maneuver-icon {
+      width: 58px; height: 58px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--bg); border: 2px solid var(--border); border-radius: 12px;
+    }
+
+    .maneuver-text { flex: 1; min-width: 0; }
+    .turn-dist { font-size: 32px; font-weight: 900; line-height: 1; }
+    .turn-dist.soon { color: var(--ok); }
+    .turn-dist.offroute { color: var(--err); }
+    .turn-desc { font-size: 17px; font-weight: 800; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .turn-street { font-size: 13px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .mgrs-bar {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 6px 12px; background: var(--surface-2);
+      border-bottom: 2px solid var(--border); flex-shrink: 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .mgrs-val {
+      font-size: 14px; font-weight: 900; letter-spacing: 0.4px; color: var(--accent);
+      background: transparent; border: none; padding: 0; cursor: pointer; text-align: left;
+      font-family: inherit;
+    }
+    .roads-status {
+      font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap;
+    }
+
+    .canvas-wrap { flex: 1; position: relative; min-height: 0; background: var(--bg); }
+    canvas {
+      display: block; width: 100%; height: 100%;
+      cursor: grab; touch-action: none;
+      user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+    }
+    canvas.dragging { cursor: grabbing; }
+
+    .canvas-overlay-top {
+      position: absolute; top: 8px; left: 8px; right: 8px;
+      display: flex; justify-content: space-between; pointer-events: none; gap: 8px;
+    }
+
+    .badge {
+      padding: 5px 9px; border-radius: 8px;
+      background: rgba(18, 18, 18, 0.86); border: 1px solid var(--border);
+      color: #ffffff; font-size: 12px; font-weight: 700;
+    }
+    body.day .badge { background: rgba(242, 242, 242, 0.92); color: #000000; }
+
+    .poi-toast {
+      position: absolute; top: 42px; left: 50%; transform: translateX(-50%);
+      padding: 6px 12px; border-radius: 10px;
+      background: rgba(18, 18, 18, 0.94); border: 2px solid var(--accent);
+      color: #ffffff; font-size: 12px; font-weight: 800;
+      white-space: nowrap; max-width: 92%; overflow: hidden; text-overflow: ellipsis;
+      pointer-events: none; display: none; z-index: 14;
+    }
+    .poi-toast.show { display: block; }
+    body.day .poi-toast { background: rgba(255, 255, 255, 0.95); color: #000000; }
+
+    .gps-cta {
+      position: absolute; left: 12px; right: 12px; top: 50%; transform: translateY(-50%);
+      background: var(--surface); border: 2px solid var(--accent);
+      border-radius: 14px; padding: 14px; text-align: center; z-index: 15;
+    }
+    .gps-cta.hidden { display: none; }
+    .gps-cta p { margin: 0 0 12px; font-size: 14px; line-height: 1.4; }
+    .cta-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+
+    .canvas-controls-left {
+      position: absolute; left: 8px; bottom: 8px;
+      display: flex; flex-direction: column; gap: 6px; z-index: 10;
+    }
+
+    .canvas-controls-right {
+      position: absolute; right: 8px; bottom: 8px;
+      display: flex; flex-direction: column; gap: 8px; z-index: 10;
+    }
+
+    .map-chip {
+      min-height: 36px; padding: 0 10px; border-radius: 10px;
+      border: 2px solid var(--border); background: rgba(18, 18, 18, 0.92);
+      color: #ffffff; font-size: 12px; font-weight: 800; cursor: pointer;
+      text-align: left;
+    }
+    .map-chip.active { border-color: var(--ok); color: var(--ok); }
+    .map-chip.accent { border-color: var(--accent); color: var(--accent); }
+    body.day .map-chip { background: rgba(242, 242, 242, 0.94); color: #000000; }
+    body.day .map-chip.active { border-color: var(--ok); color: var(--ok); }
+    body.day .map-chip.accent { border-color: var(--accent); color: var(--accent); }
+
+    .fab {
+      min-width: 50px; min-height: 46px; border-radius: 12px;
+      border: 2px solid var(--border); background: var(--surface);
+      color: var(--text); font-size: 20px; font-weight: 900; cursor: pointer;
+    }
+    .fab.recenter {
+      display: none;
+      border-color: var(--accent);
+      color: var(--accent);
+      font-size: 22px;
+    }
+    .fab.recenter.show { display: block; }
+
+    .offroute-banner {
+      position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%);
+      display: none; z-index: 12;
+    }
+    .offroute-banner.show { display: block; }
+
+    .osm-credit {
+      position: absolute; right: 64px; bottom: 4px;
+      font-size: 10px; color: var(--muted); pointer-events: none;
+      background: rgba(0, 0, 0, 0.45); padding: 1px 5px; border-radius: 4px;
+    }
+    body.day .osm-credit { background: rgba(255, 255, 255, 0.7); }
+
+    .bottombar {
+      display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px;
+      padding: 8px 10px; background: var(--surface);
+      border-top: 2px solid var(--border); flex-shrink: 0; align-items: center;
+    }
+    .stat { display: flex; flex-direction: column; }
+    .stat-val { font-size: 24px; font-weight: 900; line-height: 1.05; }
+    .stat-lbl { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; }
+
+    .mode-btn {
+      min-height: 50px; padding: 0 12px; border-radius: 12px;
+      border: 2px solid var(--accent); background: var(--surface-2);
+      color: var(--text); font-size: 13px; font-weight: 800; cursor: pointer;
+    }
+
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85);
+      display: none; align-items: center; justify-content: center; padding: 12px; z-index: 50;
+    }
+    .modal-backdrop.open { display: flex; }
+
+    .modal {
+      width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto;
+      background: var(--surface); border: 2px solid var(--border);
+      border-radius: 14px; padding: 14px;
+    }
+    .modal h2 { margin: 0 0 10px; font-size: 18px; }
+    .modal-sub { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+
+    .diag-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+    .diag-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+    .diag-card.span2 { grid-column: 1 / -1; }
+    .diag-card .k { font-size: 10px; color: var(--muted); text-transform: uppercase; font-weight: 700; }
+    .diag-card .v {
+      font-size: 14px; font-weight: 800; margin-top: 3px; word-break: break-all;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .diag-log {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px; font-size: 12px; line-height: 1.45; margin-bottom: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: pre-wrap; max-height: 160px; overflow-y: auto;
+    }
+
+    .poi-cat-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;
+    }
+    .poi-cat-btn {
+      min-height: 50px; padding: 8px 10px; border-radius: 10px;
+      border: 2px solid var(--border); background: var(--surface-2);
+      color: var(--text); font-size: 13px; font-weight: 800;
+      cursor: pointer; text-align: left; display: flex; align-items: center; gap: 8px;
+    }
+    .poi-cat-btn.selected {
+      border-color: var(--accent); background: rgba(255, 170, 0, 0.16);
+    }
+    .poi-dot {
+      width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
+      border: 2px solid #ffffff;
+    }
+
+    .radius-row {
+      display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;
+    }
+    .radius-btn {
+      flex: 1; min-width: 56px; min-height: 38px; border-radius: 8px;
+      border: 2px solid var(--border); background: var(--bg);
+      color: var(--text); font-size: 12px; font-weight: 800; cursor: pointer;
+    }
+    .radius-btn.active { border-color: var(--ok); color: var(--ok); }
+
+    .poi-list {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+      max-height: 220px; overflow-y: auto; margin-bottom: 10px;
+    }
+    .poi-list-empty {
+      padding: 12px; font-size: 13px; color: var(--muted); text-align: center;
+    }
+    .poi-item {
+      width: 100%; padding: 10px 12px; text-align: left;
+      background: transparent; color: var(--text); border: none;
+      border-bottom: 1px solid var(--border); cursor: pointer;
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    }
+    .poi-item:last-child { border-bottom: none; }
+    .poi-item strong { display: block; font-size: 14px; }
+    .poi-item small {
+      display: block; font-size: 11px; color: var(--muted); margin-top: 2px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .poi-item-dist {
+      font-size: 14px; font-weight: 900; color: var(--accent); white-space: nowrap;
+    }
+
+    .modal-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .modal-actions button {
+      flex: 1; min-height: 44px; border-radius: 10px;
+      border: 2px solid var(--border); background: var(--surface-2);
+      color: var(--text); font-weight: 800; font-size: 13px; cursor: pointer;
+    }
+    .modal-actions button.primary { background: var(--accent); color: #000000; border-color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div id="errBar" class="err-bar"></div>
+  <div class="app">
+    <div class="topbar">
+      <button id="gpsPill" class="gps-pill" type="button">
+        <span id="gpsDot" class="dot"></span>
+        <span id="gpsSummary">GPS: ootel</span>
+      </button>
+      <button id="wakeBtn" class="icon-btn" type="button">ÄRKVEL</button>
+      <button id="soundBtn" class="icon-btn active" type="button">HELI</button>
+      <button id="themeBtn" class="icon-btn" type="button">ÖÖ</button>
+    </div>
+
+    <div class="search-wrap">
+      <div class="search-row">
+        <input id="searchInput" class="search-input" type="search" placeholder="Kohanimi või MGRS (nt 35V NF 24105 81230)" autocomplete="off" />
+        <button id="searchBtn" class="btn-primary" type="button">OTSI</button>
+        <button id="clearBtn" class="icon-btn" type="button" style="display:none;">✕</button>
+      </div>
+      <div id="results" class="results"></div>
+    </div>
+
+    <div class="main">
+      <div class="maneuver-box">
+        <div id="maneuverIcon" class="maneuver-icon"></div>
+        <div class="maneuver-text">
+          <div id="turnDist" class="turn-dist">--</div>
+          <div id="turnDesc" class="turn-desc">Valmis alustamiseks</div>
+          <div id="turnStreet" class="turn-street">Käivita GPS, otsi koht või hoia sõrme kaardil</div>
+        </div>
+      </div>
+
+      <div class="mgrs-bar">
+        <button id="mgrsLive" class="mgrs-val" type="button" title="Puuduta MGRS-i kopeerimiseks">MGRS: --</button>
+        <span id="roadsStatus" class="roads-status">Teed: --</span>
+      </div>
+
+      <div class="canvas-wrap">
+        <canvas id="radarCanvas"></canvas>
+
+        <div class="canvas-overlay-top">
+          <div id="headingBadge" class="badge">Suund: 0° (Põhi)</div>
+          <div id="scaleBadge" class="badge">AUTO · 250 m</div>
+        </div>
+
+        <div id="poiToast" class="poi-toast"></div>
+
+        <div id="gpsCta" class="gps-cta">
+          <p id="gpsCtaText">Vajuta «KÄIVITA GPS» (õues) või «VÕRGU-GPS» (siseruumides).</p>
+          <div class="cta-row">
+            <button id="startGpsDirectBtn" class="btn-primary" type="button">KÄIVITA GPS</button>
+            <button id="startNetGpsBtn" class="icon-btn" type="button">VÕRGU-GPS</button>
+            <button id="hideCtaBtn" class="icon-btn" type="button">PEIDA</button>
+          </div>
+        </div>
+
+        <div class="canvas-controls-left">
+          <button id="poiMenuBtn" class="map-chip" type="button">HUVIPUNKTID</button>
+          <button id="autoZoomBtn" class="map-chip active" type="button">SUUM: AUTO</button>
+          <button id="orientBtn" class="map-chip" type="button">SUUND ÜLES</button>
+          <button id="baseMapBtn" class="map-chip" type="button">ALUS: OSM+TEED</button>
+        </div>
+
+        <div id="offrouteBanner" class="offroute-banner">
+          <button id="recalcBtn" class="btn-primary" type="button">UUS TEE</button>
+        </div>
+
+        <div class="osm-credit">© OpenStreetMap</div>
+
+        <div class="canvas-controls-right">
+          <button id="recenterBtn" class="fab recenter" type="button" title="Tagasi minu asukohta">◎</button>
+          <button id="zoomInBtn" class="fab" type="button">+</button>
+          <button id="zoomOutBtn" class="fab" type="button">−</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottombar">
+      <div class="stat"><span id="speedVal" class="stat-val">0</span><span class="stat-lbl">km/h</span></div>
+      <div class="stat"><span id="remDistVal" class="stat-val">--</span><span class="stat-lbl">Jäänud</span></div>
+      <div class="stat"><span id="etaVal" class="stat-val">--</span><span class="stat-lbl">Aeg</span></div>
+      <button id="modeBtn" class="mode-btn" type="button">TEEKOND</button>
+    </div>
+  </div>
+
+  <!-- Huvipunktide (POI) menüü -->
+  <div id="poiModal" class="modal-backdrop">
+    <div class="modal">
+      <h2>Huvipunktid ringi sees</h2>
+      <p id="poiModalSub" class="modal-sub">Vali kategooria ja raadius (kuni 100 km). Puuduta punkti kaardil või nimekirjas marsruudi loomiseks.</p>
+
+      <div id="poiCatGrid" class="poi-cat-grid"></div>
+
+      <div class="radius-row" id="poiRadiusRow">
+        <button class="radius-btn" data-r="1000" type="button">1 km</button>
+        <button class="radius-btn" data-r="5000" type="button">5 km</button>
+        <button class="radius-btn" data-r="25000" type="button">25 km</button>
+        <button class="radius-btn" data-r="50000" type="button">50 km</button>
+        <button class="radius-btn" data-r="100000" type="button">100 km</button>
+      </div>
+
+      <div id="poiList" class="poi-list">
+        <div class="poi-list-empty">Vali ülevalt huvipunkti kategooria.</div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="poiShowMapBtn" class="primary" type="button">NÄITA RINGIS</button>
+        <button id="poiRefreshBtn" type="button">OTSI UUESTI</button>
+        <button id="poiClearBtn" type="button">LÜLITA VÄLJA</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- GPS Diagnostika -->
+  <div id="diagModal" class="modal-backdrop">
+    <div class="modal">
+      <h2>GPS, MGRS ja süsteemi logi</h2>
+      <div class="diag-grid">
+        <div class="diag-card span2"><div class="k">Asukoht (MGRS)</div><div id="dMgrsPos" class="v">--</div></div>
+        <div class="diag-card span2"><div class="k">Sihtkoht (MGRS)</div><div id="dMgrsDest" class="v">--</div></div>
+        <div class="diag-card"><div class="k">Täpsus / Režiim</div><div id="dAcc" class="v">--</div></div>
+        <div class="diag-card"><div class="k">Kiirus / Suund</div><div id="dSpdHdg" class="v">--</div></div>
+        <div class="diag-card"><div class="k">Keskkond</div><div id="dEnv" class="v">--</div></div>
+        <div class="diag-card"><div class="k">Kõrvalteed / Luba</div><div id="dPerm" class="v">--</div></div>
+      </div>
+      <div id="diagLog" class="diag-log"></div>
+      <div class="modal-actions">
+        <button id="retryGpsBtn" class="primary" type="button">TÄPNE GPS</button>
+        <button id="retryNetBtn" type="button">VÕRGU-GPS</button>
+        <button id="reloadRoadsBtn" type="button">LAE TEED</button>
+        <button id="compassPermBtn" type="button">KOMPASS</button>
+        <button id="closeDiagBtn" type="button">SULGE</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function showTopErr(text) {
+      var bar = document.getElementById("errBar");
+      if (bar) {
+        bar.textContent = text;
+        bar.className = "err-bar show";
+      }
+    }
+    window.onerror = function (msg, src, line) {
+      showTopErr("JS viga (rida " + line + "): " + msg);
+    };
+    window.onunhandledrejection = function (e) {
+      showTopErr("Viga: " + (e && e.reason ? (e.reason.message || e.reason) : "tundmatu"));
+    };
+
+    (function () {
+      "use strict";
+
+      const isAndroidWebView = /; wv\)/i.test(navigator.userAgent);
+      const $ = (id) => document.getElementById(id);
+
+      const el = {
+        gpsPill: $("gpsPill"), gpsDot: $("gpsDot"), gpsSummary: $("gpsSummary"),
+        wakeBtn: $("wakeBtn"), soundBtn: $("soundBtn"), themeBtn: $("themeBtn"),
+        searchInput: $("searchInput"), searchBtn: $("searchBtn"), clearBtn: $("clearBtn"),
+        results: $("results"), maneuverIcon: $("maneuverIcon"), turnDist: $("turnDist"),
+        turnDesc: $("turnDesc"), turnStreet: $("turnStreet"),
+        mgrsLive: $("mgrsLive"), roadsStatus: $("roadsStatus"),
+        radarCanvas: $("radarCanvas"), headingBadge: $("headingBadge"), scaleBadge: $("scaleBadge"),
+        poiToast: $("poiToast"), gpsCta: $("gpsCta"), gpsCtaText: $("gpsCtaText"),
+        startGpsDirectBtn: $("startGpsDirectBtn"), startNetGpsBtn: $("startNetGpsBtn"),
+        hideCtaBtn: $("hideCtaBtn"), poiMenuBtn: $("poiMenuBtn"), autoZoomBtn: $("autoZoomBtn"),
+        orientBtn: $("orientBtn"), baseMapBtn: $("baseMapBtn"),
+        offrouteBanner: $("offrouteBanner"), recalcBtn: $("recalcBtn"),
+        recenterBtn: $("recenterBtn"), zoomInBtn: $("zoomInBtn"), zoomOutBtn: $("zoomOutBtn"),
+        speedVal: $("speedVal"), remDistVal: $("remDistVal"), etaVal: $("etaVal"),
+        modeBtn: $("modeBtn"),
+        poiModal: $("poiModal"), poiModalSub: $("poiModalSub"), poiCatGrid: $("poiCatGrid"),
+        poiRadiusRow: $("poiRadiusRow"), poiList: $("poiList"),
+        poiShowMapBtn: $("poiShowMapBtn"), poiRefreshBtn: $("poiRefreshBtn"), poiClearBtn: $("poiClearBtn"),
+        diagModal: $("diagModal"), dMgrsPos: $("dMgrsPos"), dMgrsDest: $("dMgrsDest"),
+        dAcc: $("dAcc"), dSpdHdg: $("dSpdHdg"), dEnv: $("dEnv"), dPerm: $("dPerm"),
+        diagLog: $("diagLog"), retryGpsBtn: $("retryGpsBtn"), retryNetBtn: $("retryNetBtn"),
+        reloadRoadsBtn: $("reloadRoadsBtn"), compassPermBtn: $("compassPermBtn"), closeDiagBtn: $("closeDiagBtn")
+      };
+
+      const PALETTES = {
+        night: {
+          bg: "#000000", border: "#4d4d4d", text: "#ffffff", muted: "#a0a0a0",
+          accent: "#ffaa00", route: "#00e676", passed: "#555555",
+          roadMain: "#c8c8c8", roadMinor: "#9a9a9a", roadTrack: "#848484", roadPath: "#6f6f6f",
+          cardBg: "rgba(0,0,0,0.88)"
+        },
+        day: {
+          bg: "#ffffff", border: "#7a7a7a", text: "#000000", muted: "#4a4a4a",
+          accent: "#d96b00", route: "#0066cc", passed: "#999999",
+          roadMain: "#383838", roadMinor: "#5a5a5a", roadTrack: "#727272", roadPath: "#888888",
+          cardBg: "rgba(255,255,255,0.92)"
+        }
+      };
+
+      const POI_CATEGORIES = [
+        {
+          id: "fuel", label: "Tanklad", code: "T", color: "#ff5252",
+          overpass: ['["amenity"="fuel"]'],
+          photonQueries: ["tankla", "Olerex", "Alexela", "Circle K"],
+          matchValues: ["fuel"]
+        },
+        {
+          id: "food", label: "Söögikohad", code: "S", color: "#ff9800",
+          overpass: ['["amenity"~"^(restaurant|cafe|fast_food|pub|bar|food_court|bistro)$"]'],
+          photonQueries: ["restoran", "kohvik", "pubi", "bistroo"],
+          matchValues: ["restaurant", "cafe", "fast_food", "pub", "bar", "biergarten", "food_court", "bistro"]
+        },
+        {
+          id: "sights", label: "Vaatamisväärsused", code: "V", color: "#b388ff",
+          overpass: ['["tourism"~"^(attraction|viewpoint|museum)$"]', '["historic"~"^(castle|ruins|fort|monument|manor)$"]'],
+          photonQueries: ["linnus", "muuseum", "vaatetorn", "mõis"],
+          matchValues: ["attraction", "viewpoint", "museum", "castle", "ruins", "fort", "monument", "memorial", "manor"]
+        },
+        {
+          id: "sleep", label: "Majutus", code: "M", color: "#29b6f6",
+          overpass: ['["tourism"~"^(hotel|motel|guest_house|camp_site|hostel)$"]'],
+          photonQueries: ["hotell", "külalistemaja", "puhkemaja", "kämping"],
+          matchValues: ["hotel", "motel", "guest_house", "camp_site", "hostel", "chalet", "apartment"]
+        },
+        {
+          id: "repair", label: "Moto / Remont", code: "R", color: "#00e5ff",
+          overpass: ['["shop"~"^(motorcycle|motorcycle_repair|car_repair|tyres)$"]', '["amenity"="motorcycle_parking"]'],
+          photonQueries: ["autoremont", "rehvitöökoda", "motopood"],
+          matchValues: ["motorcycle", "motorcycle_repair", "car_repair", "tyres", "motorcycle_parking", "car_parts"]
+        },
+        {
+          id: "rest", label: "Puhkeala / WC", code: "P", color: "#69f0ae",
+          overpass: ['["tourism"="picnic_site"]', '["amenity"="toilets"]', '["highway"="rest_area"]'],
+          photonQueries: ["RMK", "lõkkekoht", "puhkeala"],
+          matchValues: ["picnic_site", "toilets", "rest_area", "camp_site", "park", "parking"]
+        }
+      ];
+
+      const OVERPASS_ENDPOINTS = [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter",
+        "https://maps.mail.ru/osm/tools/overpass/api/interpreter"
+      ];
+
+      const tileCache = new Map();
+      const MAX_TILES = 140;
+      const LONG_PRESS_MS = 600;
+      const LONG_PRESS_VISUAL_DELAY_MS = 130;
+      let toastTimer = null;
+
+      let overpassChain = Promise.resolve();
+      let lastOverpassEndMs = 0;
+
+      const state = {
+        mode: "route",
+        orientMode: "heading",
+        baseMapMode: "both",
+        autoZoom: true,
+        followGps: true,
+        viewCenter: null,
+        isInteracting: false,
+        soundOn: true,
+        dayMode: false,
+        wakeLock: null,
+        zoomLevels: [200, 400, 600, 1000, 2000, 5000, 10000, 25000, 50000, 100000],
+        zoomIndex: 1,
+        radarRadiusM: 250,
+        targetRadiusM: 250,
+        currentTileZ: null,
+        canvasW: 0,
+        canvasH: 0,
+        needsRedraw: true,
+        lastDrawMs: 0,
+        lastHeadingText: "",
+        lastScaleText: "",
+        displayHeading: 0,
+        ctaDismissed: false,
+        logs: [],
+
+        gps: {
+          lat: null, lon: null, accuracy: null, speedMps: null, smoothSpeedKmh: 0,
+          gpsHeading: null, prevPos: null, prevPosTs: 0, derivedHeading: null,
+          lastMoveMs: 0, compassHeading: null, watchId: null, watchdogId: null,
+          lowAccuracyMode: false, permState: "tundmatu", status: "idle", errorText: ""
+        },
+
+        roads: {
+          ways: [],
+          center: null,
+          radiusM: 0,
+          fetching: false,
+          lastFetchMs: 0,
+          retryScheduled: false
+        },
+
+        pois: {
+          activeCatId: null,
+          reqSeq: 0,
+          items: [],
+          center: null,
+          radiusM: 0,
+          fetching: false,
+          sourceNote: "",
+          rendered: []
+        },
+
+        destination: null,
+        route: null,
+        activeStepIdx: 1,
+        riderGeomIdx: 0,
+        distToNextTurnM: null,
+        offRoute: false,
+        lastChimeKey: null
+      };
+
+      function nowStr() { return new Date().toLocaleTimeString("et-EE"); }
+
+      function addLog(msg) {
+        state.logs.unshift(`${nowStr()} · ${msg}`);
+        if (state.logs.length > 18) state.logs.length = 18;
+        el.diagLog.textContent = state.logs.join("\n");
+      }
+
+      function showToast(msg, ms) {
+        el.poiToast.textContent = msg;
+        el.poiToast.classList.add("show");
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => el.poiToast.classList.remove("show"), ms || 2800);
+      }
+
+      function getPoiCat(catId) {
+        return POI_CATEGORIES.find((c) => c.id === catId) || null;
+      }
+
+      function getMapCenter() {
+        if (!state.followGps && state.viewCenter) return state.viewCenter;
+        if (hasValidGps()) return { lat: state.gps.lat, lon: state.gps.lon };
+        return null;
+      }
+
+      function updateMgrsBar() {
+        if (!state.followGps && state.viewCenter) {
+          el.mgrsLive.textContent = "KAART: " + latLonToMGRS(state.viewCenter.lat, state.viewCenter.lon);
+        } else if (hasValidGps()) {
+          el.mgrsLive.textContent = latLonToMGRS(state.gps.lat, state.gps.lon);
+        } else {
+          el.mgrsLive.textContent = "MGRS: ootan GPS-i";
+        }
+      }
+
+      function recenterMap() {
+        state.followGps = true;
+        state.viewCenter = null;
+        el.recenterBtn.classList.remove("show");
+        updateMgrsBar();
+        if (state.autoZoom) state.targetRadiusM = computeAutoZoomTarget();
+        fetchNearbyRoads(false);
+        state.needsRedraw = true;
+      }
+
+      function fetchWithTimeout(url, options, timeoutMs) {
+        if (typeof AbortController === "undefined") {
+          return fetch(url, options || {});
+        }
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), timeoutMs || 9000);
+        const opts = Object.assign({}, options || {}, { signal: ctrl.signal });
+        return fetch(url, opts).finally(() => clearTimeout(timer));
+      }
+
+      function enqueueOverpass(query, tag) {
+        const job = async () => {
+          const waitMs = Math.max(0, 900 - (Date.now() - lastOverpassEndMs));
+          if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+
+          for (let i = 0; i < OVERPASS_ENDPOINTS.length; i++) {
+            const url = OVERPASS_ENDPOINTS[i] + "?data=" + encodeURIComponent(query);
+            try {
+              const res = await fetchWithTimeout(url, { method: "GET" }, 8500);
+              if (res.ok) {
+                const json = await res.json();
+                lastOverpassEndMs = Date.now();
+                return json;
+              }
+              addLog(`${tag} #${i + 1} HTTP ${res.status}`);
+            } catch (err) {
+              const reason = err && err.name === "AbortError" ? "aegus (8.5 s)" : (err.message || "võrguviga");
+              addLog(`${tag} #${i + 1}: ${reason}`);
+            }
+          }
+          lastOverpassEndMs = Date.now();
+          return null;
+        };
+
+        const p = overpassChain.then(job, job);
+        overpassChain = p.catch(() => {});
+        return p;
+      }
+
+      /* ===================== KIIRUSE- JA RISTMIKUPÕHINE AUTO-ZOOM ===================== */
+
+      function computeAutoZoomTarget() {
+        const kmh = state.gps.smoothSpeedKmh || 0;
+        let target;
+        if (kmh <= 15) target = 250;
+        else if (kmh <= 45) target = 250 + ((kmh - 15) / 30) * 150;
+        else if (kmh <= 70) target = 400 + ((kmh - 45) / 25) * 450;
+        else if (kmh <= 95) target = 850 + ((kmh - 70) / 25) * 550;
+        else if (kmh <= 120) target = 1400 + ((kmh - 95) / 25) * 600;
+        else target = 2000;
+
+        if (state.mode === "route" && state.route && !state.offRoute && Number.isFinite(state.distToNextTurnM)) {
+          const d = state.distToNextTurnM;
+          if (d <= 150) target = Math.min(target, 200);
+          else if (d <= 350) target = Math.min(target, 200 + ((d - 150) / 200) * 100);
+          else if (d <= 600) target = Math.min(target, 300 + ((d - 350) / 250) * 100);
+        }
+        return Math.round(Math.max(200, Math.min(2000, target)));
+      }
+
+      function updateScaleBadge() {
+        let rounded;
+        if (state.radarRadiusM < 1000) rounded = Math.round(state.radarRadiusM / 10) * 10;
+        else if (state.radarRadiusM < 10000) rounded = Math.round(state.radarRadiusM / 100) * 100;
+        else rounded = Math.round(state.radarRadiusM / 1000) * 1000;
+
+        const prefix = state.autoZoom ? "AUTO" : "KÄSI";
+        const txt = `${prefix} · ${formatDistance(rounded)}`;
+        if (txt !== state.lastScaleText) {
+          state.lastScaleText = txt;
+          el.scaleBadge.textContent = txt;
+        }
+      }
+
+      function setAutoZoomMode(enabled) {
+        state.autoZoom = enabled;
+        el.autoZoomBtn.textContent = enabled ? "SUUM: AUTO" : "SUUM: KÄSI";
+        el.autoZoomBtn.classList.toggle("active", enabled);
+        if (enabled) state.targetRadiusM = computeAutoZoomTarget();
+        updateScaleBadge();
+        state.needsRedraw = true;
+      }
+
+      function setManualRadius(radiusM, skipRoadFetch) {
+        const clamped = Math.max(200, Math.min(100000, radiusM));
+        state.targetRadiusM = clamped;
+        state.zoomIndex = findNearestZoomIndex(clamped);
+        setAutoZoomMode(false);
+        updatePoiRadiusButtons();
+        if (state.pois.activeCatId) {
+          fetchPois(false);
+        }
+        if (!skipRoadFetch && clamped <= 5000) {
+          fetchNearbyRoads(false);
+        } else if (clamped > 5000) {
+          el.roadsStatus.textContent = state.pois.activeCatId
+            ? `POI: ${countPoisInCircle()}`
+            : "Teed: OSM";
+        }
+      }
+
+      /* ===================== KAHEPOOLNE WGS84 <-> MGRS TEISENDAJA ===================== */
+
+      const WGS_A = 6378137.0;
+      const WGS_F = 1 / 298.257223563;
+      const WGS_E2 = WGS_F * (2 - WGS_F);
+      const WGS_E4 = WGS_E2 * WGS_E2;
+      const WGS_E6 = WGS_E4 * WGS_E2;
+      const WGS_EP2 = WGS_E2 / (1 - WGS_E2);
+      const UTM_K0 = 0.9996;
+
+      const MGRS_BANDS = "CDEFGHJKLMNPQRSTUVWX";
+      const MGRS_COL_SETS = ["ABCDEFGH", "JKLMNPQR", "STUVWXYZ"];
+      const MGRS_ROW_LETTERS = "ABCDEFGHJKLMNPQRSTUV";
+
+      function latLonToMGRS(lat, lon) {
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "--";
+        if (lat < -80 || lat >= 84) return "Polaarala (UPS)";
+
+        let zone = Math.floor((lon + 180) / 6) + 1;
+        if (lat >= 56 && lat < 64 && lon >= 3 && lon < 12) zone = 32;
+        if (lat >= 72 && lat < 84) {
+          if (lon >= 0 && lon < 9) zone = 31;
+          else if (lon >= 9 && lon < 21) zone = 33;
+          else if (lon >= 21 && lon < 33) zone = 35;
+          else if (lon >= 33 && lon < 42) zone = 37;
+        }
+
+        const bandIdx = Math.min(19, Math.max(0, Math.floor((lat + 80) / 8)));
+        const band = MGRS_BANDS[bandIdx];
+
+        const phi = (lat * Math.PI) / 180;
+        const lam = (lon * Math.PI) / 180;
+        const lam0 = (((zone - 1) * 6 - 180 + 3) * Math.PI) / 180;
+
+        const sinP = Math.sin(phi), cosP = Math.cos(phi), tanP = Math.tan(phi);
+        const N = WGS_A / Math.sqrt(1 - WGS_E2 * sinP * sinP);
+        const T = tanP * tanP;
+        const C = WGS_EP2 * cosP * cosP;
+        const A = cosP * (lam - lam0);
+
+        const M = WGS_A * (
+          (1 - WGS_E2 / 4 - (3 * WGS_E4) / 64 - (5 * WGS_E6) / 256) * phi -
+          ((3 * WGS_E2) / 8 + (3 * WGS_E4) / 32 + (45 * WGS_E6) / 1024) * Math.sin(2 * phi) +
+          ((15 * WGS_E4) / 256 + (45 * WGS_E6) / 1024) * Math.sin(4 * phi) -
+          ((35 * WGS_E6) / 3072) * Math.sin(6 * phi)
+        );
+
+        const A2 = A * A, A3 = A2 * A, A4 = A2 * A2, A5 = A4 * A, A6 = A4 * A2;
+        const easting = UTM_K0 * N * (
+          A + ((1 - T + C) * A3) / 6 + ((5 - 18 * T + T * T + 72 * C - 58 * WGS_EP2) * A5) / 120
+        ) + 500000.0;
+
+        let northing = UTM_K0 * (
+          M + N * tanP * (
+            A2 / 2 +
+            ((5 - T + 9 * C + 4 * C * C) * A4) / 24 +
+            ((61 - 58 * T + T * T + 600 * C - 330 * WGS_EP2) * A6) / 720
+          )
+        );
+        if (lat < 0) northing += 10000000.0;
+
+        const eInt = Math.floor(easting);
+        const nInt = Math.floor(northing);
+        const e100k = Math.min(8, Math.max(1, Math.floor(eInt / 100000)));
+        const n100k = Math.floor(nInt / 100000);
+
+        const colLetter = MGRS_COL_SETS[(zone - 1) % 3][e100k - 1];
+        const rowOffset = (zone % 2 === 0) ? 5 : 0;
+        const rowLetter = MGRS_ROW_LETTERS[(n100k + rowOffset) % 20];
+
+        const eStr = String(((eInt % 100000) + 100000) % 100000).padStart(5, "0");
+        const nStr = String(((nInt % 100000) + 100000) % 100000).padStart(5, "0");
+        return `${zone}${band} ${colLetter}${rowLetter} ${eStr} ${nStr}`;
+      }
+
+      function utmToLatLon(zone, isNorth, easting, northing) {
+        const x = easting - 500000.0;
+        const y = isNorth ? northing : northing - 10000000.0;
+        const M = y / UTM_K0;
+
+        const e1 = (1 - Math.sqrt(1 - WGS_E2)) / (1 + Math.sqrt(1 - WGS_E2));
+        const mu = M / (WGS_A * (1 - WGS_E2 / 4 - (3 * WGS_E4) / 64 - (5 * WGS_E6) / 256));
+
+        const phi1 = mu +
+          ((3 * e1) / 2 - (27 * Math.pow(e1, 3)) / 32) * Math.sin(2 * mu) +
+          ((21 * e1 * e1) / 16 - (55 * Math.pow(e1, 4)) / 32) * Math.sin(4 * mu) +
+          ((151 * Math.pow(e1, 3)) / 96) * Math.sin(6 * mu) +
+          ((1097 * Math.pow(e1, 4)) / 512) * Math.sin(8 * mu);
+
+        const sin1 = Math.sin(phi1), cos1 = Math.cos(phi1), tan1 = Math.tan(phi1);
+        const N1 = WGS_A / Math.sqrt(1 - WGS_E2 * sin1 * sin1);
+        const T1 = tan1 * tan1;
+        const C1 = WGS_EP2 * cos1 * cos1;
+        const R1 = (WGS_A * (1 - WGS_E2)) / Math.pow(1 - WGS_E2 * sin1 * sin1, 1.5);
+        const D = x / (N1 * UTM_K0);
+        const D2 = D * D, D3 = D2 * D, D4 = D2 * D2, D5 = D4 * D, D6 = D4 * D2;
+
+        const latRad = phi1 - ((N1 * tan1) / R1) * (
+          D2 / 2 -
+          ((5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * WGS_EP2) * D4) / 24 +
+          ((61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 252 * WGS_EP2 - 3 * C1 * C1) * D6) / 720
+        );
+        const lam0 = (((zone - 1) * 6 - 180 + 3) * Math.PI) / 180;
+        const lonRad = lam0 + (
+          D -
+          ((1 + 2 * T1 + C1) * D3) / 6 +
+          ((5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * WGS_EP2 + 24 * T1 * T1) * D5) / 120
+        ) / cos1;
+
+        return toValidCoord((latRad * 180) / Math.PI, (lonRad * 180) / Math.PI);
+      }
+
+      function looksLikeMGRS(raw) {
+        return /^\s*\d{1,2}\s*[A-Za-z]\s*[A-Za-z]{2}([\s\-_]*\d+)?\s*$/.test(raw);
+      }
+
+      function parseMGRS(raw) {
+        const clean = raw.trim().toUpperCase().replace(/[\s\-_]+/g, "");
+        const m = /^(\d{1,2})([C-HJ-NP-X])([A-HJ-NP-Z])([A-HJ-NP-V])(\d*)$/.exec(clean);
+        if (!m) return { error: "Vigane MGRS-vorming. Kasuta kuju nt 35V NF 24105 81230." };
+
+        const zone = parseInt(m[1], 10);
+        const band = m[2], colLetter = m[3], rowLetter = m[4], digits = m[5];
+
+        if (zone < 1 || zone > 60) return { error: `Vigane UTM tsoon (${zone}).` };
+        if (digits.length % 2 !== 0 || digits.length > 10) {
+          return { error: `MGRS numbrite arv peab olema paaris (4, 6, 8 või 10), sisestati ${digits.length}.` };
+        }
+
+        const colSet = MGRS_COL_SETS[(zone - 1) % 3];
+        const colIdx = colSet.indexOf(colLetter);
+        if (colIdx === -1) return { error: `Veerutäht «${colLetter}» ei sobi tsooniga ${zone}.` };
+
+        const rowIdx = MGRS_ROW_LETTERS.indexOf(rowLetter);
+        if (rowIdx === -1) return { error: `Reatäht «${rowLetter}» ei ole lubatud.` };
+
+        const half = digits.length / 2;
+        const scale = Math.pow(10, 5 - half);
+        const eRawStr = half > 0 ? digits.slice(0, half) : "";
+        const nRawStr = half > 0 ? digits.slice(half) : "";
+        const centerOffset = scale > 1 ? scale / 2 : 0.5;
+        const eLocal = (half > 0 ? parseInt(eRawStr, 10) * scale : 0) + centerOffset;
+        const nLocal = (half > 0 ? parseInt(nRawStr, 10) * scale : 0) + centerOffset;
+
+        const easting = (colIdx + 1) * 100000 + eLocal;
+        const rowOffset = (zone % 2 === 0) ? 5 : 0;
+        const n100kMod20 = (rowIdx - rowOffset + 20) % 20;
+
+        const bandIdx = MGRS_BANDS.indexOf(band);
+        const isNorth = bandIdx >= 10;
+        const minLat = -80 + bandIdx * 8;
+        const maxLat = band === "X" ? 84 : minLat + 8;
+
+        let matched = null;
+        for (let k = 0; k <= 5; k++) {
+          const candNorthing = k * 2000000 + n100kMod20 * 100000 + nLocal;
+          if (candNorthing < 0 || candNorthing > 10000000) continue;
+          const pt = utmToLatLon(zone, isNorth, easting, candNorthing);
+          if (pt && pt.lat >= minLat - 0.05 && pt.lat <= maxLat + 0.05) {
+            matched = pt;
+            break;
+          }
+        }
+        if (!matched) return { error: `Reatäht «${rowLetter}» ei lange kokku vööndiga ${zone}${band}.` };
+
+        const formatted = half > 0
+          ? `${zone}${band} ${colLetter}${rowLetter} ${eRawStr} ${nRawStr}`
+          : `${zone}${band} ${colLetter}${rowLetter}`;
+
+        return { lat: matched.lat, lon: matched.lon, mgrs: formatted, precisionM: scale };
+      }
+
+      /* ===================== GEO-MATEMAATIKA & MERCATOR ===================== */
+
+      function toValidCoord(rawLat, rawLon) {
+        const lat = parseFloat(rawLat);
+        const lon = parseFloat(rawLon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+          return null;
+        }
+        return { lat, lon };
+      }
+
+      function hasValidGps() { return Number.isFinite(state.gps.lat) && Number.isFinite(state.gps.lon); }
+      function toRad(d) { return (d * Math.PI) / 180; }
+      function toDeg(r) { return (r * 180) / Math.PI; }
+
+      function shortestAngleDelta(fromDeg, toDeg) {
+        return ((toDeg - fromDeg + 540) % 360) - 180;
+      }
+
+      function distanceMeters(a, b) {
+        const R = 6371000;
+        const dLat = toRad(b.lat - a.lat), dLon = toRad(b.lon - a.lon);
+        const s1 = Math.sin(dLat / 2), s2 = Math.sin(dLon / 2);
+        const h = s1 * s1 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * s2 * s2;
+        return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+      }
+
+      function bearingDegrees(a, b) {
+        const lat1 = toRad(a.lat), lat2 = toRad(b.lat), dLon = toRad(b.lon - a.lon);
+        const y = Math.sin(dLon) * Math.cos(lat2);
+        const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+        return (toDeg(Math.atan2(y, x)) + 360) % 360;
+      }
+
+      function latLonToTileXY(lat, lon, z) {
+        const clampedLat = Math.max(-85.0511, Math.min(85.0511, lat));
+        const n = Math.pow(2, z);
+        const x = ((lon + 180) / 360) * n;
+        const latRad = toRad(clampedLat);
+        const y = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
+        return { x, y };
+      }
+
+      function tileXYToLatLon(tx, ty, z) {
+        const n = Math.pow(2, z);
+        let lon = (tx / n) * 360 - 180;
+        lon = ((lon + 540) % 360) - 180;
+        const latRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * ty) / n)));
+        const lat = Math.max(-85.0511, Math.min(85.0511, (latRad * 180) / Math.PI));
+        return toValidCoord(lat, lon);
+      }
+
+      function getRouteForwardBearing() {
+        if (!state.route || !state.route.coords || state.route.coords.length < 2) return null;
+        const coords = state.route.coords;
+        const startIdx = Math.min(state.riderGeomIdx, coords.length - 2);
+        const p0 = coords[startIdx];
+        for (let i = startIdx + 1; i < coords.length; i++) {
+          if (distanceMeters(p0, coords[i]) >= 25 || i === coords.length - 1) {
+            return bearingDegrees(p0, coords[i]);
+          }
+        }
+        return null;
+      }
+
+      function getActiveHeading() {
+        if (state.orientMode === "north") return { deg: 0, source: "Põhi üles" };
+
+        const speedKmh = state.gps.smoothSpeedKmh || 0;
+        const movedRecently = Date.now() - state.gps.lastMoveMs < 25000;
+
+        if (speedKmh >= 3.5 && Number.isFinite(state.gps.gpsHeading)) {
+          return { deg: state.gps.gpsHeading, source: "Liikumine" };
+        }
+        if (movedRecently && Number.isFinite(state.gps.derivedHeading)) {
+          return { deg: state.gps.derivedHeading, source: "Liikumine" };
+        }
+
+        if (state.orientMode === "gps_only") {
+          if (Number.isFinite(state.gps.derivedHeading)) return { deg: state.gps.derivedHeading, source: "GPS-suund" };
+          if (Number.isFinite(state.gps.gpsHeading)) return { deg: state.gps.gpsHeading, source: "GPS-suund" };
+          const routeBrg = getRouteForwardBearing();
+          if (routeBrg !== null) return { deg: routeBrg, source: "Teekond" };
+          return { deg: 0, source: "Ootan liikumist" };
+        }
+
+        if (Number.isFinite(state.gps.compassHeading)) return { deg: state.gps.compassHeading, source: "Kompass" };
+        if (Number.isFinite(state.gps.derivedHeading)) return { deg: state.gps.derivedHeading, source: "Liikumine" };
+        const routeBrg = getRouteForwardBearing();
+        if (routeBrg !== null) return { deg: routeBrg, source: "Teekond" };
+        return { deg: 0, source: "Põhi" };
+      }
+
+      function formatDistance(m) {
+        if (!Number.isFinite(m)) return "--";
+        if (m < 1000) return m < 50 ? `${Math.max(0, Math.round(m / 5) * 5)} m` : `${Math.round(m / 10) * 10} m`;
+        const km = m / 1000;
+        return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
+      }
+
+      function formatDuration(s) {
+        if (!Number.isFinite(s)) return "--";
+        const mins = Math.max(1, Math.round(s / 60));
+        return mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)}t ${mins % 60}m`;
+      }
+
+      /* ===================== SÕRMEGA LOHISTAMINE, SUUM JA PIKK VAJUTUS ===================== */
+
+      const activePointers = new Map();
+      let panState = {
+        active: false,
+        wasPinch: false,
+        startX: 0,
+        startY: 0,
+        lastX: 0,
+        lastY: 0,
+        totalMove: 0,
+        lastPinchDist: 0,
+        lastMidX: 0,
+        lastMidY: 0
+      };
+
+      const longPress = {
+        active: false,
+        triggered: false,
+        startMs: 0,
+        clientX: 0,
+        clientY: 0,
+        sx: 0,
+        sy: 0,
+        timerId: null
+      };
+
+      function getCurrentMapMetrics() {
+        const w = state.canvasW, h = state.canvasH;
+        const cx = w / 2;
+        const cy = h * 0.58;
+        const radiusPx = Math.max(60, Math.min(w * 0.44, cy - 36, h - cy - 18));
+        const pxPerM = radiusPx / state.radarRadiusM;
+        return { cx, cy, radiusPx, pxPerM };
+      }
+
+      // Teisendab ekraanipuute (clientX, clientY) täpseks { lat, lon } koordinaadiks arvestades pöördenurka
+      function screenToLatLon(clientX, clientY) {
+        const center = getMapCenter();
+        if (!center) return null;
+        const rect = el.radarCanvas.getBoundingClientRect();
+        const sx = clientX - rect.left;
+        const sy = clientY - rect.top;
+
+        const { cx, cy, pxPerM } = getCurrentMapMetrics();
+        const cosLat = Math.cos(toRad(center.lat));
+        const z = state.currentTileZ !== null
+          ? state.currentTileZ
+          : Math.max(6, Math.min(17, Math.round(Math.log2(156543.03392 * cosLat * pxPerM))));
+        const tileSizePx = (40075016.68557849 * cosLat / Math.pow(2, z)) * pxPerM;
+        if (tileSizePx <= 0) return null;
+
+        const hdgRad = toRad(state.displayHeading);
+        const cosH = Math.cos(hdgRad);
+        const sinH = Math.sin(hdgRad);
+
+        const dsx = sx - cx;
+        const dsy = sy - cy;
+        const mx = dsx * cosH - dsy * sinH;
+        const my = dsx * sinH + dsy * cosH;
+
+        const centerTile = latLonToTileXY(center.lat, center.lon, z);
+        return tileXYToLatLon(centerTile.x + mx / tileSizePx, centerTile.y + my / tileSizePx, z);
+      }
+
+      function cancelLongPress() {
+        if (longPress.timerId !== null) {
+          clearTimeout(longPress.timerId);
+          longPress.timerId = null;
+        }
+        if (longPress.active) {
+          longPress.active = false;
+          state.needsRedraw = true;
+        }
+      }
+
+      function startLongPress(clientX, clientY) {
+        cancelLongPress();
+        const rect = el.radarCanvas.getBoundingClientRect();
+        longPress.active = true;
+        longPress.triggered = false;
+        longPress.startMs = performance.now();
+        longPress.clientX = clientX;
+        longPress.clientY = clientY;
+        longPress.sx = clientX - rect.left;
+        longPress.sy = clientY - rect.top;
+
+        longPress.timerId = setTimeout(() => {
+          longPress.timerId = null;
+          if (!longPress.active || panState.wasPinch || panState.totalMove >= 12) {
+            longPress.active = false;
+            return;
+          }
+          longPress.active = false;
+          longPress.triggered = true;
+
+          const pt = screenToLatLon(longPress.clientX, longPress.clientY);
+          if (!pt) return;
+
+          if (navigator.vibrate) {
+            try { navigator.vibrate(45); } catch (_) {}
+          }
+          playShortConfirmBeep();
+
+          const mgrs = latLonToMGRS(pt.lat, pt.lon);
+          addLog(`Pikk vajutus kaardil: ${mgrs}`);
+          showToast(`Marsruut -> ${mgrs}`, 2800);
+          setDestination({
+            lat: pt.lat,
+            lon: pt.lon,
+            name: mgrs,
+            isMgrs: true
+          });
+        }, LONG_PRESS_MS);
+      }
+
+      function applyScreenPan(dxScreen, dyScreen) {
+        if (dxScreen === 0 && dyScreen === 0) return;
+        const center = getMapCenter();
+        if (!center) return;
+
+        if (state.followGps) {
+          state.followGps = false;
+          state.viewCenter = { lat: center.lat, lon: center.lon };
+          el.recenterBtn.classList.add("show");
+        }
+
+        const { pxPerM } = getCurrentMapMetrics();
+        const cosLat = Math.cos(toRad(state.viewCenter.lat));
+        const z = state.currentTileZ !== null ? state.currentTileZ : 14;
+        const tileSizePx = (40075016.68557849 * cosLat / Math.pow(2, z)) * pxPerM;
+        if (tileSizePx <= 0) return;
+
+        const hdgRad = toRad(state.displayHeading);
+        const cosH = Math.cos(hdgRad);
+        const sinH = Math.sin(hdgRad);
+
+        const dsx = -dxScreen;
+        const dsy = -dyScreen;
+        const dmx = dsx * cosH - dsy * sinH;
+        const dmy = dsx * sinH + dsy * cosH;
+
+        const curTile = latLonToTileXY(state.viewCenter.lat, state.viewCenter.lon, z);
+        const nextCenter = tileXYToLatLon(curTile.x + dmx / tileSizePx, curTile.y + dmy / tileSizePx, z);
+        if (nextCenter) {
+          state.viewCenter = nextCenter;
+          updateMgrsBar();
+          state.needsRedraw = true;
+        }
+      }
+
+      function getTwoPointers() {
+        const it = activePointers.values();
+        return [it.next().value, it.next().value];
+      }
+
+      el.radarCanvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+      el.radarCanvas.addEventListener("pointerdown", (e) => {
+        if (state.mode !== "route" || !getMapCenter()) return;
+        try { el.radarCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+
+        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        state.isInteracting = true;
+        el.radarCanvas.classList.add("dragging");
+
+        if (activePointers.size === 1) {
+          panState.active = true;
+          panState.wasPinch = false;
+          panState.startX = e.clientX;
+          panState.startY = e.clientY;
+          panState.lastX = e.clientX;
+          panState.lastY = e.clientY;
+          panState.totalMove = 0;
+          startLongPress(e.clientX, e.clientY);
+        } else if (activePointers.size === 2) {
+          cancelLongPress();
+          const [p1, p2] = getTwoPointers();
+          panState.wasPinch = true;
+          panState.lastPinchDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+          panState.lastMidX = (p1.x + p2.x) / 2;
+          panState.lastMidY = (p1.y + p2.y) / 2;
+        }
+      });
+
+      el.radarCanvas.addEventListener("pointermove", (e) => {
+        if (!activePointers.has(e.pointerId)) return;
+        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+        if (activePointers.size === 1 && panState.active && !panState.wasPinch) {
+          const dx = e.clientX - panState.lastX;
+          const dy = e.clientY - panState.lastY;
+          panState.lastX = e.clientX;
+          panState.lastY = e.clientY;
+          panState.totalMove += Math.hypot(dx, dy);
+
+          if (panState.totalMove >= 12) {
+            cancelLongPress();
+          }
+          if (panState.totalMove >= 6 && !longPress.triggered) {
+            applyScreenPan(dx, dy);
+          }
+        } else if (activePointers.size >= 2) {
+          cancelLongPress();
+          const [p1, p2] = getTwoPointers();
+          const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+          const midX = (p1.x + p2.x) / 2;
+          const midY = (p1.y + p2.y) / 2;
+
+          if (panState.lastPinchDist > 10 && dist > 10) {
+            const ratio = panState.lastPinchDist / dist;
+            const nextR = Math.max(200, Math.min(100000, state.radarRadiusM * ratio));
+            state.radarRadiusM = nextR;
+            state.targetRadiusM = nextR;
+            state.zoomIndex = findNearestZoomIndex(nextR);
+            if (state.autoZoom) setAutoZoomMode(false);
+            updateScaleBadge();
+            state.needsRedraw = true;
+          }
+
+          const mdx = midX - panState.lastMidX;
+          const mdy = midY - panState.lastMidY;
+          if (Math.abs(mdx) > 0.5 || Math.abs(mdy) > 0.5) {
+            applyScreenPan(mdx, mdy);
+          }
+
+          panState.lastPinchDist = dist;
+          panState.lastMidX = midX;
+          panState.lastMidY = midY;
+        }
+      });
+
+      function onPointerFinish(e) {
+        if (!activePointers.has(e.pointerId)) return;
+        try { el.radarCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+        activePointers.delete(e.pointerId);
+
+        if (activePointers.size === 1) {
+          cancelLongPress();
+          const remaining = activePointers.values().next().value;
+          panState.lastX = remaining.x;
+          panState.lastY = remaining.y;
+          panState.wasPinch = false;
+          panState.totalMove = 99;
+          return;
+        }
+
+        if (activePointers.size === 0) {
+          const didLongPress = longPress.triggered;
+          cancelLongPress();
+          longPress.triggered = false;
+
+          const wasTap = !didLongPress && panState.active && !panState.wasPinch && panState.totalMove < 10;
+          panState.active = false;
+          state.isInteracting = false;
+          el.radarCanvas.classList.remove("dragging");
+
+          if (didLongPress) {
+            return;
+          }
+          if (wasTap) {
+            handleCanvasTap(e.clientX, e.clientY);
+          } else {
+            updatePoiRadiusButtons();
+            if (state.radarRadiusM <= 5500) fetchNearbyRoads(false);
+            if (state.pois.activeCatId) fetchPois(false);
+          }
+        }
+      }
+
+      el.radarCanvas.addEventListener("pointerup", onPointerFinish);
+      el.radarCanvas.addEventListener("pointercancel", onPointerFinish);
+
+      el.radarCanvas.addEventListener("wheel", (e) => {
+        if (state.mode !== "route" || !getMapCenter()) return;
+        e.preventDefault();
+        const factor = e.deltaY > 0 ? 1.25 : 0.8;
+        setManualRadius(state.targetRadiusM * factor, false);
+      }, { passive: false });
+
+      /* ===================== KAHEMOOTORILINE HUVIPUNKTIDE OTSING ===================== */
+
+      function countPoisInCircle() {
+        const center = getMapCenter();
+        if (!center || !state.pois.items.length) return 0;
+        const r = Math.max(state.radarRadiusM, state.targetRadiusM);
+        let cnt = 0;
+        for (let i = 0; i < state.pois.items.length; i++) {
+          if (distanceMeters(center, state.pois.items[i]) <= r) cnt++;
+        }
+        return cnt;
+      }
+
+      function updatePoiButtonLabel() {
+        const cat = getPoiCat(state.pois.activeCatId);
+        if (!cat) {
+          el.poiMenuBtn.textContent = "HUVIPUNKTID";
+          el.poiMenuBtn.classList.remove("accent");
+          return;
+        }
+        const inCircle = countPoisInCircle();
+        el.poiMenuBtn.textContent = state.pois.fetching && inCircle === 0
+          ? `POI: ${cat.label}...`
+          : `POI: ${cat.label} (${inCircle})`;
+        el.poiMenuBtn.classList.add("accent");
+      }
+
+      function updatePoiRadiusButtons() {
+        const btns = el.poiRadiusRow.querySelectorAll(".radius-btn");
+        const cur = state.targetRadiusM;
+        btns.forEach((b) => {
+          const r = parseInt(b.getAttribute("data-r"), 10);
+          b.classList.toggle("active", Math.abs(cur - r) < r * 0.15);
+        });
+      }
+
+      function renderPoiModalContent() {
+        const btns = el.poiCatGrid.querySelectorAll(".poi-cat-btn");
+        btns.forEach((b) => {
+          b.classList.toggle("selected", b.getAttribute("data-cat") === state.pois.activeCatId);
+        });
+        updatePoiRadiusButtons();
+
+        const cat = getPoiCat(state.pois.activeCatId);
+        const curR = Math.round(state.targetRadiusM);
+        el.poiModalSub.textContent = cat
+          ? `${cat.label} · raadius ${formatDistance(curR)}${state.pois.sourceNote ? " (" + state.pois.sourceNote + ")" : ""}`
+          : `Vali kategooria ja raadius (hetkel ${formatDistance(curR)}, kuni 100 km).`;
+
+        const center = getMapCenter();
+        if (!center) {
+          el.poiList.innerHTML = `<div class="poi-list-empty">Käivita esmalt GPS, et otsida ümbruse huvipunkte.</div>`;
+          return;
+        }
+        if (!cat) {
+          el.poiList.innerHTML = `<div class="poi-list-empty">Vali ülevalt huvipunkti kategooria.</div>`;
+          return;
+        }
+
+        const visible = state.pois.items
+          .map((p) => ({ poi: p, dist: distanceMeters(center, p) }))
+          .filter((x) => x.dist <= state.targetRadiusM)
+          .sort((a, b) => a.dist - b.dist);
+
+        if (visible.length === 0) {
+          el.poiList.innerHTML = state.pois.fetching
+            ? `<div class="poi-list-empty">Otsin «${escapeHtml(cat.label)}» raadiuses ${formatDistance(curR)}...</div>`
+            : `<div class="poi-list-empty">Raadiuses ${formatDistance(curR)} huvipunkte ei leitud. Proovi suuremat raadiust (25–100 km).</div>`;
+          return;
+        }
+
+        el.poiList.innerHTML = "";
+        visible.slice(0, 80).forEach((entry) => {
+          const p = entry.poi;
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "poi-item";
+          const mgrs = latLonToMGRS(p.lat, p.lon);
+          btn.innerHTML =
+            `<div><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(mgrs)}${p.sub ? " · " + escapeHtml(p.sub) : ""}</small></div>` +
+            `<span class="poi-item-dist">${formatDistance(entry.dist)}</span>`;
+          btn.addEventListener("click", () => {
+            el.poiModal.classList.remove("open");
+            routeToPoi(p);
+          });
+          el.poiList.appendChild(btn);
+        });
+      }
+
+      function mergePoiItems(existing, incoming, center, maxRadius) {
+        const seen = new Map();
+        const addOne = (item) => {
+          const d = distanceMeters(center, item);
+          if (d > maxRadius) return;
+          const normName = String(item.name || "").toLowerCase().trim().slice(0, 14);
+          const key = `${normName}_${Math.round(item.lat * 6000)}_${Math.round(item.lon * 6000)}`;
+          if (!seen.has(key)) {
+            seen.set(key, Object.assign({}, item, { distM: d }));
+          }
+        };
+        existing.forEach(addOne);
+        incoming.forEach(addOne);
+        const arr = Array.from(seen.values());
+        arr.sort((a, b) => a.distM - b.distM);
+        return arr;
+      }
+
+      async function fetchPoisFromPhoton(cat, center, reqRadius) {
+        const results = [];
+        const queries = cat.photonQueries || [];
+        const calls = queries.map(async (q) => {
+          try {
+            const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=${center.lat.toFixed(4)}&lon=${center.lon.toFixed(4)}&limit=25`;
+            const res = await fetchWithTimeout(url, { method: "GET" }, 5500);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data || !Array.isArray(data.features)) return;
+
+            for (let i = 0; i < data.features.length; i++) {
+              const f = data.features[i];
+              const coords = f.geometry && f.geometry.coordinates;
+              if (!coords || coords.length < 2) continue;
+              const c = toValidCoord(coords[1], coords[0]);
+              if (!c) continue;
+              const d = distanceMeters(center, c);
+              if (d > reqRadius) continue;
+
+              const p = f.properties || {};
+              const val = String(p.osm_value || "").toLowerCase();
+              const key = String(p.osm_key || "").toLowerCase();
+              const name = p.name || q;
+
+              if (key === "boundary" || key === "place" || val === "residential" || val === "unclassified" || val === "bus_stop") {
+                continue;
+              }
+              const valMatch = cat.matchValues.indexOf(val) !== -1;
+              const nameMatch = name.toLowerCase().indexOf(q.toLowerCase()) !== -1;
+              if (!valMatch && !nameMatch) continue;
+
+              const sub = [p.city || p.town || p.village || p.county, p.street].filter(Boolean).join(", ");
+              results.push({
+                id: `ph_${p.osm_id || i}_${Math.round(c.lat * 10000)}`,
+                lat: c.lat, lon: c.lon, name, sub,
+                catId: cat.id, color: cat.color, code: cat.code, distM: d
+              });
+            }
+          } catch (_) {}
+        });
+
+        await Promise.all(calls);
+        return results;
+      }
+
+      async function fetchPoisFromOverpass(cat, center, reqRadius) {
+        const dLat = reqRadius / 111320;
+        const dLon = reqRadius / (111320 * Math.max(0.2, Math.cos(toRad(center.lat))));
+        const s = (center.lat - dLat).toFixed(4);
+        const n = (center.lat + dLat).toFixed(4);
+        const w = (center.lon - dLon).toFixed(4);
+        const e = (center.lon + dLon).toFixed(4);
+
+        const wideArea = reqRadius > 20000;
+        const parts = [];
+        for (let i = 0; i < cat.overpass.length; i++) {
+          const f = cat.overpass[i];
+          if (wideArea) {
+            parts.push(`node${f}(${s},${w},${n},${e});`);
+          } else {
+            parts.push(`node${f}(${s},${w},${n},${e});way${f}(${s},${w},${n},${e});`);
+          }
+        }
+
+        const query = wideArea
+          ? `[out:json][timeout:14];(${parts.join("")});out qt 300;`
+          : `[out:json][timeout:14];(${parts.join("")});out center qt 260;`;
+
+        const data = await enqueueOverpass(query, "POI-Overpass");
+        if (!data || !Array.isArray(data.elements)) return null;
+
+        const out = [];
+        for (let i = 0; i < data.elements.length; i++) {
+          const elem = data.elements[i];
+          const rawLat = elem.lat !== undefined ? elem.lat : (elem.center && elem.center.lat);
+          const rawLon = elem.lon !== undefined ? elem.lon : (elem.center && elem.center.lon);
+          const c = toValidCoord(rawLat, rawLon);
+          if (!c) continue;
+          const d = distanceMeters(center, c);
+          if (d > reqRadius) continue;
+
+          const tags = elem.tags || {};
+          const name = tags.name || tags.brand || tags.operator || cat.label;
+          const sub = tags.brand && tags.brand !== name
+            ? tags.brand
+            : (tags["addr:city"] || tags["addr:street"] || tags.historic || tags.tourism || tags.amenity || "");
+
+          out.push({
+            id: `ov_${elem.type}_${elem.id}`,
+            lat: c.lat, lon: c.lon, name, sub,
+            catId: cat.id, color: cat.color, code: cat.code, distM: d
+          });
+        }
+        return out;
+      }
+
+      async function fetchPois(force) {
+        const cat = getPoiCat(state.pois.activeCatId);
+        if (!cat) return;
+        const center = getMapCenter();
+        if (!center) {
+          renderPoiModalContent();
+          showToast("Käivita esmalt GPS!", 2500);
+          return;
+        }
+
+        const reqRadius = Math.max(1000, Math.min(100000, Math.round(state.targetRadiusM)));
+
+        if (!force && state.pois.center && state.pois.radiusM >= reqRadius && state.pois.items.length > 0) {
+          const moved = distanceMeters(state.pois.center, center);
+          if (moved < state.pois.radiusM * 0.35) {
+            updatePoiButtonLabel();
+            renderPoiModalContent();
+            state.needsRedraw = true;
+            return;
+          }
+        }
+
+        const mySeq = ++state.pois.reqSeq;
+        state.pois.fetching = true;
+        state.pois.sourceNote = "otsin...";
+        updatePoiButtonLabel();
+        renderPoiModalContent();
+        showToast(`Otsin: ${cat.label} (${formatDistance(reqRadius)})...`, 3000);
+        addLog(`POI otsing: ${cat.label} (${formatDistance(reqRadius)})`);
+
+        const photonPromise = fetchPoisFromPhoton(cat, center, reqRadius).then((phItems) => {
+          if (mySeq !== state.pois.reqSeq) return;
+          if (phItems.length > 0) {
+            state.pois.items = mergePoiItems(state.pois.items, phItems, center, reqRadius);
+            state.pois.center = center;
+            state.pois.radiusM = Math.max(state.pois.radiusM, reqRadius);
+            state.pois.sourceNote = "kiire otsing OK, täiendan...";
+            addLog(`Photon POI: +${phItems.length} (${cat.label})`);
+            updatePoiButtonLabel();
+            renderPoiModalContent();
+            state.needsRedraw = true;
+          }
+        });
+
+        const overpassPromise = fetchPoisFromOverpass(cat, center, reqRadius).then((ovItems) => {
+          if (mySeq !== state.pois.reqSeq) return;
+          if (ovItems && ovItems.length > 0) {
+            state.pois.items = mergePoiItems(ovItems, state.pois.items, center, reqRadius);
+            state.pois.center = center;
+            state.pois.radiusM = Math.max(state.pois.radiusM, reqRadius);
+            addLog(`Overpass POI: +${ovItems.length} (${cat.label})`);
+          }
+        });
+
+        await Promise.all([photonPromise, overpassPromise]);
+        if (mySeq !== state.pois.reqSeq) return;
+
+        state.pois.fetching = false;
+        const cnt = countPoisInCircle();
+        state.pois.sourceNote = cnt > 0 ? `${cnt} punkti ringis` : "tulemusi ei leitud";
+        updatePoiButtonLabel();
+        renderPoiModalContent();
+        state.needsRedraw = true;
+
+        if (cnt > 0) {
+          showToast(`${cat.label}: ${cnt} tk ringis · puuduta marsruudiks`, 3200);
+        } else {
+          showToast(`${cat.label}: 0 tk (${formatDistance(reqRadius)}) — suurenda raadiust`, 3200);
+        }
+      }
+
+      function routeToPoi(poi) {
+        if (state.mode !== "route") {
+          state.mode = "route";
+          el.modeBtn.textContent = "TEEKOND";
+        }
+        showToast(`Marsruut: ${poi.name}`, 2500);
+        setDestination({
+          lat: poi.lat, lon: poi.lon, name: poi.name,
+          isMgrs: false, poiId: poi.id
+        });
+      }
+
+      /* ===================== VABAVARALISED OSM ALUSKAARDI PLAADID ===================== */
+
+      function getTileImage(z, tx, ty) {
+        const maxT = Math.pow(2, z);
+        const wrapX = ((tx % maxT) + maxT) % maxT;
+        if (ty < 0 || ty >= maxT) return null;
+
+        const key = `osm/${z}/${wrapX}/${ty}`;
+        const existing = tileCache.get(key);
+        if (existing) return existing;
+
+        if (tileCache.size >= MAX_TILES) {
+          const firstKey = tileCache.keys().next().value;
+          tileCache.delete(firstKey);
+        }
+
+        const entry = { img: new Image(), ready: false, failed: false };
+        entry.img.onload = () => {
+          entry.ready = true;
+          state.needsRedraw = true;
+        };
+        entry.img.onerror = () => { entry.failed = true; };
+        entry.img.src = `https://tile.openstreetmap.org/${z}/${wrapX}/${ty}.png`;
+        tileCache.set(key, entry);
+        return entry;
+      }
+
+      /* ===================== KÕRVALTEED (KIIRE OVERPASS VEKTORKIHT) ===================== */
+
+      async function fetchNearbyRoads(force) {
+        const center = getMapCenter();
+        if (!center) return;
+        const effectiveRadius = Math.max(state.radarRadiusM, state.targetRadiusM);
+        if (!force && effectiveRadius > 5500) {
+          el.roadsStatus.textContent = state.pois.activeCatId
+            ? `POI: ${countPoisInCircle()}`
+            : "Teed: OSM";
+          return;
+        }
+
+        const now = Date.now();
+        if (state.roads.fetching) return;
+
+        const halfSpanM = Math.min(2000, Math.max(1200, Math.round(Math.min(effectiveRadius, 1500) * 1.4)));
+
+        if (!force && state.roads.center) {
+          const moved = distanceMeters(state.roads.center, center);
+          const needLarger = Math.min(effectiveRadius, 2000) > state.roads.radiusM * 0.85;
+          if (moved < state.roads.radiusM * 0.45 && !needLarger) return;
+          if (now - state.roads.lastFetchMs < 8000) return;
+        }
+
+        state.roads.fetching = true;
+        state.roads.lastFetchMs = now;
+        el.roadsStatus.textContent = "Teed: laen...";
+
+        const dLat = halfSpanM / 111320;
+        const dLon = halfSpanM / (111320 * Math.max(0.2, Math.cos(toRad(center.lat))));
+        const s = (center.lat - dLat).toFixed(4);
+        const n = (center.lat + dLat).toFixed(4);
+        const w = (center.lon - dLon).toFixed(4);
+        const e = (center.lon + dLon).toFixed(4);
+
+        const query =
+          `[out:json][timeout:12];` +
+          `way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|track|path)$"](${s},${w},${n},${e});` +
+          `out geom qt;`;
+
+        const data = await enqueueOverpass(query, "Teed-Overpass");
+        state.roads.fetching = false;
+
+        if (!data || !Array.isArray(data.elements)) {
+          el.roadsStatus.textContent = state.roads.ways.length ? `Teed: ${state.roads.ways.length}` : "Teed: OSM";
+          if (!state.roads.retryScheduled && state.roads.ways.length === 0) {
+            state.roads.retryScheduled = true;
+            setTimeout(() => {
+              state.roads.retryScheduled = false;
+              fetchNearbyRoads(true);
+            }, 3500);
+          }
+          return;
+        }
+
+        const ways = [];
+        for (let i = 0; i < data.elements.length; i++) {
+          const elem = data.elements[i];
+          if (!elem.geometry || elem.geometry.length < 2) continue;
+          const hw = (elem.tags && elem.tags.highway) || "";
+          let tier = "minor";
+          if (/^(motorway|trunk|primary|secondary|tertiary)/.test(hw)) tier = "main";
+          else if (hw === "track" || hw === "service") tier = "track";
+          else if (hw === "path") tier = "path";
+
+          const pts = [];
+          let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+          for (let j = 0; j < elem.geometry.length; j++) {
+            const c = toValidCoord(elem.geometry[j].lat, elem.geometry[j].lon);
+            if (!c) continue;
+            pts.push(c);
+            if (c.lat < minLat) minLat = c.lat;
+            if (c.lat > maxLat) maxLat = c.lat;
+            if (c.lon < minLon) minLon = c.lon;
+            if (c.lon > maxLon) maxLon = c.lon;
+          }
+          if (pts.length >= 2) ways.push({ tier, bbox: [minLat, maxLat, minLon, maxLon], pts });
+        }
+
+        state.roads.ways = ways;
+        state.roads.center = center;
+        state.roads.radiusM = halfSpanM;
+        el.roadsStatus.textContent = `Teed: ${ways.length}`;
+        addLog(`Kõrvalteed OK: ${ways.length} lõiku (±${halfSpanM} m)`);
+        updateGpsUI();
+        state.needsRedraw = true;
+      }
+
+      /* ===================== GPS JA SILUTUD KOMPASS ===================== */
+
+      function stopGps() {
+        if (state.gps.watchId !== null) {
+          try { navigator.geolocation.clearWatch(state.gps.watchId); } catch (_) {}
+          state.gps.watchId = null;
+        }
+        if (state.gps.watchdogId !== null) {
+          clearTimeout(state.gps.watchdogId);
+          state.gps.watchdogId = null;
+        }
+      }
+
+      function startGps(useLowAccuracy) {
+        stopGps();
+        state.ctaDismissed = false;
+        state.gps.lowAccuracyMode = !!useLowAccuracy;
+
+        if (!("geolocation" in navigator)) {
+          state.gps.status = "error";
+          state.gps.errorText = "See brauser ei toeta Geolocation API-t.";
+          addLog("VIGA: geolocation puudub");
+          updateGpsUI();
+          return;
+        }
+
+        const label = useLowAccuracy ? "VÕRGU-GPS" : "TÄPNE GPS";
+        state.gps.status = "init";
+        state.gps.errorText = `Küsin asukohta (${label})... oota kuni 8 s.`;
+        addLog(`Käivitan: ${label}`);
+        updateGpsUI();
+
+        state.gps.watchdogId = setTimeout(() => {
+          if (!hasValidGps() && state.gps.status === "init") {
+            if (!useLowAccuracy) {
+              addLog("8 s vastuseta -> proovin võrgu-GPS-i");
+              startGps(true);
+            } else {
+              state.gps.status = "error";
+              state.gps.errorText = isAndroidWebView
+                ? "Acode WebView blokeerib GPS-i. Ava Chrome'is (HTTPS / localhost)."
+                : "Asukoht ei vastanud 8 s jooksul. Kontrolli telefoni Location-seadet ja brauseri luba.";
+              addLog("VALVE: GPS ei vastanud");
+              updateGpsUI();
+            }
+          }
+        }, 8000);
+
+        const opts = {
+          enableHighAccuracy: !useLowAccuracy,
+          timeout: 7500,
+          maximumAge: useLowAccuracy ? 60000 : 3000
+        };
+
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            onGpsSuccess(pos);
+            if (state.gps.watchId === null) {
+              state.gps.watchId = navigator.geolocation.watchPosition(
+                onGpsSuccess,
+                (wErr) => addLog(`watchPosition hoiatus (${wErr.code})`),
+                { enableHighAccuracy: !useLowAccuracy, timeout: 15000, maximumAge: 2000 }
+              );
+            }
+          },
+          (err) => onGpsError(err, !!useLowAccuracy),
+          opts
+        );
+      }
+
+      function onGpsSuccess(position) {
+        if (state.gps.watchdogId !== null) {
+          clearTimeout(state.gps.watchdogId);
+          state.gps.watchdogId = null;
+        }
+
+        const coord = toValidCoord(position.coords.latitude, position.coords.longitude);
+        if (!coord) return;
+
+        const nowMs = position.timestamp || Date.now();
+        const acc = Number.isFinite(position.coords.accuracy) ? parseFloat(position.coords.accuracy) : null;
+        let derivedSpeedKmh = null;
+
+        if (state.gps.prevPos) {
+          const movedM = distanceMeters(state.gps.prevPos, coord);
+          const dtSec = (nowMs - state.gps.prevPosTs) / 1000;
+          if (movedM >= 4) {
+            const newBrg = bearingDegrees(state.gps.prevPos, coord);
+            if (state.gps.derivedHeading === null) state.gps.derivedHeading = newBrg;
+            else {
+              const d = shortestAngleDelta(state.gps.derivedHeading, newBrg);
+              state.gps.derivedHeading = (state.gps.derivedHeading + d * 0.45 + 360) % 360;
+            }
+            if (acc !== null && acc <= 25 && dtSec >= 1 && dtSec <= 15 && movedM >= 7) {
+              derivedSpeedKmh = Math.min(220, (movedM / dtSec) * 3.6);
+            }
+            state.gps.lastMoveMs = Date.now();
+            state.gps.prevPos = coord;
+            state.gps.prevPosTs = nowMs;
+          }
+        } else {
+          state.gps.prevPos = coord;
+          state.gps.prevPosTs = nowMs;
+        }
+
+        const wasEmpty = !hasValidGps();
+        state.gps.lat = coord.lat;
+        state.gps.lon = coord.lon;
+        state.gps.accuracy = acc;
+        state.gps.speedMps = (position.coords.speed !== null && Number.isFinite(position.coords.speed))
+          ? Math.max(0, parseFloat(position.coords.speed)) : null;
+        state.gps.gpsHeading = (position.coords.heading !== null && Number.isFinite(position.coords.heading))
+          ? parseFloat(position.coords.heading) : null;
+
+        let rawKmh = state.gps.speedMps !== null
+          ? state.gps.speedMps * 3.6
+          : (derivedSpeedKmh !== null ? derivedSpeedKmh : (Date.now() - state.gps.lastMoveMs > 5000 ? 0 : state.gps.smoothSpeedKmh));
+        if (rawKmh < 2.2) rawKmh = 0;
+        const spdAlpha = rawKmh < state.gps.smoothSpeedKmh ? 0.35 : 0.22;
+        state.gps.smoothSpeedKmh = state.gps.smoothSpeedKmh + (rawKmh - state.gps.smoothSpeedKmh) * spdAlpha;
+        if (state.gps.smoothSpeedKmh < 1) state.gps.smoothSpeedKmh = 0;
+
+        if (state.gps.speedMps !== null && state.gps.speedMps >= 1.0 && state.gps.gpsHeading !== null) {
+          state.gps.lastMoveMs = Date.now();
+        }
+        state.gps.status = "ok";
+        state.gps.errorText = "";
+
+        if (wasEmpty) {
+          addLog(`Asukoht: ${latLonToMGRS(coord.lat, coord.lon)} (±${Math.round(acc || 0)}m)`);
+        }
+
+        updateGpsUI();
+
+        if (wasEmpty && state.destination && state.mode === "route" && !state.route) {
+          calculateRoute();
+        } else {
+          updateNavigation();
+        }
+
+        if (state.autoZoom && state.followGps) state.targetRadiusM = computeAutoZoomTarget();
+        if (state.followGps) {
+          fetchNearbyRoads(false);
+          if (state.pois.activeCatId) fetchPois(false);
+        }
+        state.needsRedraw = true;
+      }
+
+      function onGpsError(err, wasLowAccuracy) {
+        if (state.gps.watchdogId !== null) {
+          clearTimeout(state.gps.watchdogId);
+          state.gps.watchdogId = null;
+        }
+        addLog(`GPS viga (${err.code}): ${err.message || ""}`);
+
+        if ((err.code === 2 || err.code === 3) && !wasLowAccuracy) {
+          startGps(true);
+          return;
+        }
+
+        state.gps.status = "error";
+        if (err.code === 1) {
+          state.gps.errorText = isAndroidWebView
+            ? "Acode WebView keelas GPS-i. Muuda Settings -> Preview Settings -> Preview Mode = Browser."
+            : "Asukoha luba keelatud. Luba brauseri aadressiribal Asukoht (Location) ja proovi uuesti.";
+        } else if (err.code === 2) {
+          state.gps.errorText = "Asukoht pole kättesaadav. Kontrolli, et telefoni Location oleks sees.";
+        } else if (err.code === 3) {
+          state.gps.errorText = "GPS aegus. Proovi «VÕRGU-GPS» või astu õue.";
+        } else {
+          state.gps.errorText = `GPS viga (${err.code})`;
+        }
+        updateGpsUI();
+      }
+
+      function initCompassListener() {
+        const handler = (event) => {
+          let raw = null;
+          if (typeof event.webkitCompassHeading === "number" && Number.isFinite(event.webkitCompassHeading)) {
+            raw = event.webkitCompassHeading;
+          } else if (typeof event.alpha === "number" && Number.isFinite(event.alpha)) {
+            raw = (360 - event.alpha) % 360;
+          }
+          if (raw === null) return;
+
+          const scrAngle = (window.screen && window.screen.orientation && typeof window.screen.orientation.angle === "number")
+            ? window.screen.orientation.angle
+            : (typeof window.orientation === "number" ? window.orientation : 0);
+          raw = (raw + scrAngle + 360) % 360;
+
+          if (state.gps.compassHeading === null) {
+            state.gps.compassHeading = raw;
+            state.needsRedraw = true;
+            return;
+          }
+
+          const delta = shortestAngleDelta(state.gps.compassHeading, raw);
+          const absD = Math.abs(delta);
+          if (absD < 1.5) return;
+
+          const alpha = absD < 10 ? 0.06 : (absD < 35 ? 0.12 : 0.22);
+          state.gps.compassHeading = (state.gps.compassHeading + delta * alpha + 360) % 360;
+          if (state.followGps) state.needsRedraw = true;
+        };
+
+        if ("ondeviceorientationabsolute" in window) {
+          window.addEventListener("deviceorientationabsolute", handler, { passive: true });
+        } else if ("ondeviceorientation" in window) {
+          window.addEventListener("deviceorientation", handler, { passive: true });
+        }
+      }
+
+      function updateGpsUI() {
+        const g = state.gps;
+        el.dEnv.textContent = isAndroidWebView
+          ? "Acode WebView"
+          : (window.isSecureContext ? "Brauser OK (HTTPS)" : "Pole HTTPS/localhost");
+        el.dPerm.textContent = `${state.roads.ways.length} teed · ${state.pois.items.length} POI`;
+        el.dMgrsDest.textContent = state.destination
+          ? (state.destination.isMgrs
+              ? state.destination.name
+              : `${latLonToMGRS(state.destination.lat, state.destination.lon)} (${state.destination.name})`)
+          : "--";
+
+        updateMgrsBar();
+
+        if (hasValidGps()) {
+          const mgrsNow = latLonToMGRS(g.lat, g.lon);
+          el.dMgrsPos.textContent = mgrsNow;
+
+          el.gpsCta.classList.add("hidden");
+          const acc = g.accuracy !== null ? Math.round(g.accuracy) : null;
+          const lbl = g.lowAccuracyMode ? "Võrk" : "GPS";
+          el.gpsDot.className = "dot " + (acc !== null && acc <= 35 ? "ok" : "warn");
+          el.gpsSummary.textContent = acc !== null ? `${lbl} ±${acc} m` : `${lbl} OK`;
+          el.dAcc.textContent = acc !== null ? `±${acc} m (${lbl})` : lbl;
+          const kmh = Math.round(g.smoothSpeedKmh || 0);
+          el.dSpdHdg.textContent = `${kmh} km/h · ${Math.round(getActiveHeading().deg)}°`;
+          el.speedVal.textContent = String(kmh);
+          if (!state.destination) {
+            el.turnDesc.textContent = state.mode === "compass" ? "Kompass valmis" : "Asukoht lukustatud";
+            el.turnStreet.textContent = "Otsi koht, vali POI või hoia sõrme kaardil";
+          }
+        } else {
+          el.dMgrsPos.textContent = "--";
+          el.gpsCta.classList.toggle("hidden", state.ctaDismissed);
+          el.gpsDot.className = "dot " + (g.status === "init" ? "warn" : "");
+          el.gpsSummary.textContent = g.status === "init" ? "GPS: otsin..." : (g.status === "error" ? "GPS: viga" : "GPS: ootel");
+          el.dAcc.textContent = "--";
+          el.dSpdHdg.textContent = "--";
+          el.gpsCtaText.textContent = g.errorText || "Vajuta «KÄIVITA GPS» (õues) või «VÕRGU-GPS» (siseruumides).";
+        }
+      }
+
+      /* ===================== SIHTKOHA VALIK (MGRS + KOHANIMI + POI + PIKK VAJUTUS) ===================== */
+
+      function setDestination(dest) {
+        el.results.classList.remove("open");
+        el.searchInput.value = dest.name;
+        state.destination = dest;
+        state.route = null;
+        state.distToNextTurnM = null;
+        el.clearBtn.style.display = "inline-block";
+
+        const mgrsLabel = dest.isMgrs ? dest.name : latLonToMGRS(dest.lat, dest.lon);
+        addLog(`Sihtkoht: ${dest.name}${dest.isMgrs ? "" : " (" + mgrsLabel + ")"}`);
+        updateGpsUI();
+
+        if (!hasValidGps()) {
+          el.turnDist.textContent = "GPS?";
+          el.turnDist.className = "turn-dist";
+          el.turnDesc.textContent = dest.isMgrs ? "MGRS sihtkoht lukustatud" : "Sihtkoht lukustatud";
+          el.turnStreet.textContent = `${dest.name} — käivita GPS`;
+          state.ctaDismissed = false;
+          updateGpsUI();
+        } else if (state.mode === "compass") {
+          updateNavigation();
+          state.needsRedraw = true;
+        } else {
+          calculateRoute();
+        }
+      }
+
+      async function searchDestination() {
+        const q = el.searchInput.value.trim();
+        if (!q) return;
+
+        if (looksLikeMGRS(q)) {
+          const parsed = parseMGRS(q);
+          if (parsed.error) {
+            el.results.innerHTML = `<div class="result-item"><strong>MGRS viga</strong><small>${escapeHtml(parsed.error)}</small></div>`;
+            el.results.classList.add("open");
+            addLog(`MGRS viga: ${parsed.error}`);
+            return;
+          }
+          addLog(`MGRS sihtkoht: ${parsed.mgrs}`);
+          setDestination({ lat: parsed.lat, lon: parsed.lon, name: parsed.mgrs, isMgrs: true });
+          return;
+        }
+
+        el.searchBtn.disabled = true;
+        el.results.innerHTML = `<div class="result-item">Otsin «${escapeHtml(q)}»...</div>`;
+        el.results.classList.add("open");
+        addLog(`Otsin: ${q}`);
+
+        let items = [];
+        try {
+          const res = await fetchWithTimeout(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6`, {}, 6000);
+          if (res.ok) {
+            const data = await res.json();
+            if (data && Array.isArray(data.features)) {
+              items = data.features.map((f) => {
+                const coords = f.geometry && f.geometry.coordinates;
+                if (!coords || coords.length < 2) return null;
+                const c = toValidCoord(coords[1], coords[0]);
+                if (!c) return null;
+                const p = f.properties || {};
+                const parts = [p.name, p.city || p.town || p.village || p.county, p.country].filter(Boolean);
+                const title = p.name || parts[0] || q;
+                return { lat: c.lat, lon: c.lon, title, sub: parts.join(", ") };
+              }).filter(Boolean);
+            }
+          }
+        } catch (e) {
+          addLog(`Photon viga: ${e.message}`);
+        }
+
+        if (items.length === 0) {
+          try {
+            const res2 = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=json&limit=6&accept-language=et&q=${encodeURIComponent(q)}`, {}, 6000);
+            if (res2.ok) {
+              const data2 = await res2.json();
+              if (Array.isArray(data2)) {
+                items = data2.map((item) => {
+                  const c = toValidCoord(item.lat, item.lon);
+                  if (!c) return null;
+                  const title = item.display_name.split(",").slice(0, 2).join(",");
+                  return { lat: c.lat, lon: c.lon, title, sub: item.display_name };
+                }).filter(Boolean);
+              }
+            }
+          } catch (e2) {
+            addLog(`Nominatim viga: ${e2.message}`);
+          }
+        }
+
+        el.searchBtn.disabled = false;
+
+        if (items.length === 0) {
+          el.results.innerHTML = `<div class="result-item">Tulemusi ei leitud.<small>Võid sisestada ka MGRS-i, nt 35V NF 24105 81230</small></div>`;
+          return;
+        }
+
+        el.results.innerHTML = "";
+        items.forEach((it) => {
+          const mgrs = latLonToMGRS(it.lat, it.lon);
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "result-item";
+          btn.innerHTML = `<strong>${escapeHtml(it.title)}</strong><small>${escapeHtml(mgrs)} · ${escapeHtml(it.sub)}</small>`;
+          btn.addEventListener("click", () => {
+            setDestination({ lat: it.lat, lon: it.lon, name: it.title, isMgrs: false });
+          });
+          el.results.appendChild(btn);
+        });
+      }
+
+      /* ===================== OSRM MARSRUUT ===================== */
+
+      async function calculateRoute() {
+        if (!hasValidGps() || !state.destination) return;
+        const start = { lat: state.gps.lat, lon: state.gps.lon };
+        const end = { lat: state.destination.lat, lon: state.destination.lon };
+        el.turnDist.textContent = "...";
+        el.turnDesc.textContent = "Arvutan teekonda";
+        el.turnStreet.textContent = state.destination.name;
+        el.offrouteBanner.classList.remove("show");
+        addLog(`OSRM: ${latLonToMGRS(start.lat, start.lon)} -> ${latLonToMGRS(end.lat, end.lon)}`);
+
+        try {
+          const url = `https://router.project-osrm.org/route/v1/driving/${start.lon},${start.lat};${end.lon},${end.lat}?overview=full&geometries=geojson&steps=true`;
+          const res = await fetchWithTimeout(url, {}, 9000);
+          if (!res.ok) throw new Error(`OSRM HTTP ${res.status}`);
+          const data = await res.json();
+          if (data.code !== "Ok" || !data.routes || !data.routes.length) throw new Error("Teekonda ei leitud.");
+
+          const r = data.routes[0];
+          const coords = r.geometry.coordinates.map((p) => toValidCoord(p[1], p[0])).filter(Boolean);
+          if (coords.length < 2) throw new Error("Tühi teekond.");
+
+          let idxCursor = 0;
+          const steps = (r.legs[0].steps || []).map((s) => {
+            const loc = toValidCoord(s.maneuver.location[1], s.maneuver.location[0]);
+            if (!loc) return null;
+            let bestIdx = idxCursor, bestD = Infinity;
+            for (let i = idxCursor; i < coords.length; i++) {
+              const d = distanceMeters(loc, coords[i]);
+              if (d < bestD) { bestD = d; bestIdx = i; }
+              if (bestD < 15 && d > bestD + 50) break;
+            }
+            idxCursor = bestIdx;
+            return {
+              lat: loc.lat, lon: loc.lon, geomIdx: bestIdx,
+              type: s.maneuver.type || "", modifier: s.maneuver.modifier || "",
+              exit: s.maneuver.exit || null, name: s.name || ""
+            };
+          }).filter(Boolean);
+
+          state.route = {
+            coords, steps,
+            totalDistance: parseFloat(r.distance) || 0,
+            totalDuration: parseFloat(r.duration) || 0
+          };
+          state.riderGeomIdx = 0;
+          state.activeStepIdx = steps.length > 1 ? 1 : 0;
+          state.offRoute = false;
+          state.lastChimeKey = null;
+          addLog(`Marsruut OK: ${formatDistance(state.route.totalDistance)}`);
+          updateNavigation();
+          if (state.autoZoom && state.followGps) state.targetRadiusM = computeAutoZoomTarget();
+          state.needsRedraw = true;
+        } catch (e) {
+          addLog(`OSRM viga: ${e.message}`);
+          el.turnDist.textContent = "!";
+          el.turnDesc.textContent = "Teekonda ei saanud arvutada";
+          el.turnStreet.textContent = "Vajuta «TEEKOND» -> KOMPASS otsesuunaks";
+          state.needsRedraw = true;
+        }
+      }
+
+      /* ===================== NAVIGEERIMINE ===================== */
+
+      function updateNavigation() {
+        if (!hasValidGps()) {
+          state.distToNextTurnM = null;
+          el.turnDesc.textContent = state.mode === "compass" ? "Kompassirežiim (ootan GPS-i)" : "Teekonnarežiim (ootan GPS-i)";
+          el.turnStreet.textContent = state.destination ? `Sihtkoht: ${state.destination.name}` : "Käivita GPS, otsi koht või hoia sõrme kaardil";
+          renderManeuverIcon(state.mode === "compass" ? "compass" : "straight");
+          return;
+        }
+
+        const pos = { lat: state.gps.lat, lon: state.gps.lon };
+
+        if (state.mode === "compass") {
+          state.distToNextTurnM = null;
+          el.offrouteBanner.classList.remove("show");
+          if (!state.destination) {
+            el.turnDist.textContent = "--";
+            el.turnDesc.textContent = "Kompassirežiim";
+            el.turnStreet.textContent = "Sisesta MGRS või vali huvipunkt";
+            el.remDistVal.textContent = "--";
+            el.etaVal.textContent = "--";
+            renderManeuverIcon("compass");
+            return;
+          }
+          const d = distanceMeters(pos, state.destination);
+          const brg = bearingDegrees(pos, state.destination);
+          el.turnDist.textContent = formatDistance(d);
+          el.turnDist.className = "turn-dist" + (d < 150 ? " soon" : "");
+          el.turnDesc.textContent = `Otsesuund ${Math.round(brg)}°`;
+          el.turnStreet.textContent = state.destination.isMgrs
+            ? `MGRS ${state.destination.name}`
+            : `${state.destination.name} · ${latLonToMGRS(state.destination.lat, state.destination.lon)}`;
+          el.remDistVal.textContent = formatDistance(d);
+          el.etaVal.textContent = "OTSE";
+          renderManeuverIcon("compass");
+          return;
+        }
+
+        if (!state.route) {
+          state.distToNextTurnM = null;
+          renderManeuverIcon("straight");
+          return;
+        }
+
+        const { coords, steps } = state.route;
+        let closestIdx = state.riderGeomIdx, minDist = Infinity;
+        const s0 = Math.max(0, state.riderGeomIdx - 15);
+        const s1 = Math.min(coords.length - 1, state.riderGeomIdx + 80);
+        for (let i = s0; i <= s1; i++) {
+          const d = distanceMeters(pos, coords[i]);
+          if (d < minDist) { minDist = d; closestIdx = i; }
+        }
+        if (minDist > 80) {
+          for (let i = 0; i < coords.length; i++) {
+            const d = distanceMeters(pos, coords[i]);
+            if (d < minDist) { minDist = d; closestIdx = i; }
+          }
+        }
+        state.riderGeomIdx = closestIdx;
+        state.offRoute = minDist > 80;
+        el.offrouteBanner.classList.toggle("show", state.offRoute);
+
+        let nextIdx = steps.length - 1;
+        for (let i = 1; i < steps.length; i++) {
+          if (steps[i].geomIdx > closestIdx || i === steps.length - 1) {
+            if (distanceMeters(pos, steps[i]) < 25 && i < steps.length - 1) continue;
+            nextIdx = i;
+            break;
+          }
+        }
+        state.activeStepIdx = nextIdx;
+        const step = steps[nextIdx];
+
+        let distToTurn = distanceMeters(pos, coords[closestIdx]);
+        for (let i = closestIdx; i < step.geomIdx && i < coords.length - 1; i++) {
+          distToTurn += distanceMeters(coords[i], coords[i + 1]);
+        }
+        let remDist = distanceMeters(pos, coords[closestIdx]);
+        for (let i = closestIdx; i < coords.length - 1; i++) {
+          remDist += distanceMeters(coords[i], coords[i + 1]);
+        }
+        const remSec = state.route.totalDistance > 0
+          ? state.route.totalDuration * Math.min(1, remDist / state.route.totalDistance) : 0;
+
+        const directToDest = distanceMeters(pos, state.destination);
+        state.distToNextTurnM = state.offRoute ? null : distToTurn;
+
+        if (state.offRoute) {
+          el.turnDist.textContent = formatDistance(minDist);
+          el.turnDist.className = "turn-dist offroute";
+          el.turnDesc.textContent = "Teekonnalt kõrval";
+          el.turnStreet.textContent = "Vajuta «UUS TEE»";
+          renderManeuverIcon("offroute");
+        } else if (directToDest < 30 || (step.type === "arrive" && distToTurn < 35 && directToDest < 60)) {
+          el.turnDist.textContent = "KOHAL";
+          el.turnDist.className = "turn-dist soon";
+          el.turnDesc.textContent = "Oled sihtkohas";
+          el.turnStreet.textContent = state.destination.name;
+          renderManeuverIcon("arrive");
+        } else {
+          el.turnDist.textContent = formatDistance(distToTurn);
+          el.turnDist.className = "turn-dist" + (distToTurn <= 200 ? " soon" : "");
+          el.turnDesc.textContent = translateManeuver(step);
+          el.turnStreet.textContent = step.name || state.destination.name;
+          renderManeuverIcon(getIconKey(step));
+          const key = `${nextIdx}_200`;
+          if (distToTurn <= 180 && distToTurn > 30 && state.lastChimeKey !== key) {
+            state.lastChimeKey = key;
+            playTurnChime();
+          }
+        }
+        el.remDistVal.textContent = formatDistance(remDist);
+        el.etaVal.textContent = formatDuration(remSec);
+      }
+
+      function translateManeuver(s) {
+        if (s.type === "arrive") return "Sihtkoht ees";
+        if (s.type === "roundabout" || s.type === "rotary") return s.exit ? `Ringteelt ${s.exit}. mahasõit` : "Ringteelt maha";
+        if (s.modifier === "uturn") return "Tagasipööre";
+        if (s.modifier === "sharp left") return "Järsk pööre vasakule";
+        if (s.modifier === "sharp right") return "Järsk pööre paremale";
+        if (s.modifier === "left") return "Pööra vasakule";
+        if (s.modifier === "right") return "Pööra paremale";
+        if (s.modifier === "slight left") return "Hoia vasakule";
+        if (s.modifier === "slight right") return "Hoia paremale";
+        return "Sõida otse";
+      }
+
+      function getIconKey(s) {
+        if (s.type === "arrive") return "arrive";
+        if (s.type === "roundabout" || s.type === "rotary") return "roundabout";
+        if (s.modifier === "uturn") return "uturn";
+        if (s.modifier === "left" || s.modifier === "sharp left") return "left";
+        if (s.modifier === "right" || s.modifier === "sharp right") return "right";
+        if (s.modifier === "slight left") return "slight_left";
+        if (s.modifier === "slight right") return "slight_right";
+        return "straight";
+      }
+
+      function renderManeuverIcon(key) {
+        const svgs = {
+          straight: `<svg viewBox="0 0 64 64" width="42" height="42" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M32 54V12"/><path d="M18 26L32 12l14 14"/></svg>`,
+          left: `<svg viewBox="0 0 64 64" width="42" height="42" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M42 54V30a8 8 0 0 0-8-8H14"/><path d="M26 10L14 22l12 12"/></svg>`,
+          right: `<svg viewBox="0 0 64 64" width="42" height="42" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 54V30a8 8 0 0 1 8-8h20"/><path d="M38 10l12 12-12 12"/></svg>`,
+          slight_left: `<svg viewBox="0 0 64 64" width="42" height="42" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M38 54V36L20 14"/><path d="M20 30V14h16"/></svg>`,
+          slight_right: `<svg viewBox="0 0 64 64" width="42" height="42" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M26 54V36l18-22"/><path d="M28 14h16v16"/></svg>`,
+          uturn: `<svg viewBox="0 0 64 64" width="42" height="42" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M44 54V24a12 12 0 0 0-24 0v20"/><path d="M10 34l10 10 10-10"/></svg>`,
+          roundabout: `<svg viewBox="0 0 64 64" width="42" height="42" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="34" r="12"/><path d="M32 56V46"/><path d="M32 22V10"/><path d="M24 18l8-8 8 8"/></svg>`,
+          arrive: `<svg viewBox="0 0 64 64" width="42" height="42" fill="none" stroke="currentColor" stroke-width="6"><path d="M32 54s16-14 16-28a16 16 0 1 0-32 0c0 14 16 28 16 28z"/><circle cx="32" cy="26" r="5" fill="currentColor"/></svg>`,
+          compass: `<svg viewBox="0 0 64 64" width="42" height="42" fill="none" stroke="currentColor" stroke-width="6"><circle cx="32" cy="32" r="22"/><polygon points="32,14 40,36 32,31 24,36" fill="currentColor" stroke="none"/></svg>`,
+          offroute: `<svg viewBox="0 0 64 64" width="42" height="42" fill="none" stroke="#ff3d57" stroke-width="7" stroke-linecap="round"><path d="M32 14v22"/><circle cx="32" cy="48" r="2.5" fill="#ff3d57"/></svg>`
+        };
+        el.maneuverIcon.innerHTML = svgs[key] || svgs.straight;
+      }
+
+      /* ===================== PÖÖRLEV JA LOHISTATAV ALUSKAART + KÕRVALTEED + HUVIPUNKTID ===================== */
+
+      function resizeCanvas() {
+        const rect = el.radarCanvas.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        state.canvasW = rect.width;
+        state.canvasH = rect.height;
+        el.radarCanvas.width = Math.round(rect.width * dpr);
+        el.radarCanvas.height = Math.round(rect.height * dpr);
+        const ctx = el.radarCanvas.getContext("2d");
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        state.needsRedraw = true;
+      }
+
+      function drawCompassRing(ctx, cx, cy, r, hdgRad, pal, fontSize) {
+        ctx.strokeStyle = pal.border;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.strokeStyle = pal.border;
+        ctx.lineWidth = 1.5;
+        for (let deg = 0; deg < 360; deg += 30) {
+          if (deg % 90 === 0) continue;
+          const a = toRad(deg) - hdgRad - Math.PI / 2;
+          ctx.beginPath();
+          ctx.moveTo(cx + Math.cos(a) * (r - 6), cy + Math.sin(a) * (r - 6));
+          ctx.lineTo(cx + Math.cos(a) * (r + 2), cy + Math.sin(a) * (r + 2));
+          ctx.stroke();
+        }
+
+        const cardinals = [
+          { lbl: "N", deg: 0,   col: "#ff3d57" },
+          { lbl: "E", deg: 90,  col: pal.text },
+          { lbl: "S", deg: 180, col: pal.text },
+          { lbl: "W", deg: 270, col: pal.text }
+        ];
+
+        ctx.font = `900 ${fontSize}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        const badgeR = fontSize * 0.72;
+        for (let i = 0; i < cardinals.length; i++) {
+          const c = cardinals[i];
+          const a = toRad(c.deg) - hdgRad - Math.PI / 2;
+          const lx = cx + Math.cos(a) * r;
+          const ly = cy + Math.sin(a) * r;
+
+          ctx.fillStyle = pal.cardBg;
+          ctx.beginPath();
+          ctx.arc(lx, ly, badgeR, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = c.col;
+          ctx.fillText(c.lbl, lx, ly + 0.5);
+        }
+      }
+
+      function drawTargetCrosshair(ctx, x, y, pal) {
+        ctx.strokeStyle = pal.accent;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(x, y, 10, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x - 15, y); ctx.lineTo(x + 15, y);
+        ctx.moveTo(x, y - 15); ctx.lineTo(x, y + 15);
+        ctx.stroke();
+        ctx.fillStyle = pal.accent;
+        ctx.beginPath();
+        ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function drawRiderArrow(ctx, x, y, rotRad, pal) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(rotRad);
+        ctx.fillStyle = pal.text;
+        ctx.strokeStyle = pal.bg;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(0, -18);
+        ctx.lineTo(13, 14);
+        ctx.lineTo(0, 7);
+        ctx.lineTo(-13, 14);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawLongPressRing(ctx, pal) {
+        if (!longPress.active || longPress.triggered) return;
+        const elapsed = performance.now() - longPress.startMs;
+        if (elapsed < LONG_PRESS_VISUAL_DELAY_MS) return;
+
+        const progress = Math.min(1, (elapsed - LONG_PRESS_VISUAL_DELAY_MS) / (LONG_PRESS_MS - LONG_PRESS_VISUAL_DELAY_MS));
+        const x = longPress.sx;
+        const y = longPress.sy;
+        const r = 30;
+
+        // Tume taustaring sõrme ümber
+        ctx.strokeStyle = pal.cardBg;
+        ctx.lineWidth = 8;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Täituv oranž laadimiskaar
+        ctx.strokeStyle = pal.accent;
+        ctx.lineWidth = 4.5;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+        ctx.stroke();
+
+        // Täpne kesk-sihik
+        ctx.fillStyle = pal.accent;
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function drawPoisInsideCircle(ctx, cx, cy, radiusPx, hdgRad, toMapXY, pal) {
+        state.pois.rendered = [];
+        if (!state.pois.activeCatId || !state.pois.items.length) return;
+
+        const cosH = Math.cos(hdgRad);
+        const sinH = Math.sin(hdgRad);
+        const maxDrawR = radiusPx - 11;
+        const selectedPoiId = state.destination && state.destination.poiId;
+
+        const placed = [];
+        for (let i = 0; i < state.pois.items.length; i++) {
+          const poi = state.pois.items[i];
+          const m = toMapXY(poi);
+          const rDist = Math.hypot(m.x, m.y);
+          if (rDist > maxDrawR) continue;
+
+          const sx = cx + m.x * cosH + m.y * sinH;
+          const sy = cy - m.x * sinH + m.y * cosH;
+          const isSelected = selectedPoiId && poi.id === selectedPoiId;
+
+          if (!isSelected) {
+            let tooClose = false;
+            for (let j = 0; j < placed.length; j++) {
+              if (Math.hypot(sx - placed[j].sx, sy - placed[j].sy) < 20) {
+                tooClose = true;
+                break;
+              }
+            }
+            if (tooClose) continue;
+          }
+
+          placed.push({ poi, sx, sy, isSelected });
+          if (placed.length >= 60) break;
+        }
+
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        for (let i = 0; i < placed.length; i++) {
+          const { poi, sx, sy, isSelected } = placed[i];
+          const pinR = isSelected ? 12 : 10;
+
+          ctx.fillStyle = isSelected ? pal.accent : poi.color;
+          ctx.beginPath();
+          ctx.arc(sx, sy, pinR, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.strokeStyle = isSelected ? "#ffffff" : pal.bg;
+          ctx.lineWidth = isSelected ? 3 : 2;
+          ctx.stroke();
+
+          ctx.fillStyle = "#000000";
+          ctx.font = "900 11px sans-serif";
+          ctx.fillText(poi.code, sx, sy + 0.5);
+
+          if (i < 12 || isSelected) {
+            const shortLbl = poi.name.length > 15 ? poi.name.slice(0, 14) + "…" : poi.name;
+            ctx.font = "700 10px sans-serif";
+            const tw = ctx.measureText(shortLbl).width;
+            const bx = sx - tw / 2 - 4;
+            const by = sy + pinR + 3;
+
+            ctx.fillStyle = pal.cardBg;
+            ctx.fillRect(bx, by, tw + 8, 14);
+            ctx.fillStyle = pal.text;
+            ctx.fillText(shortLbl, sx, by + 7);
+          }
+
+          state.pois.rendered.push({ poi, sx, sy });
+        }
+      }
+
+      function drawRadar() {
+        const w = state.canvasW, h = state.canvasH;
+        if (w <= 0 || h <= 0) return;
+        const ctx = el.radarCanvas.getContext("2d");
+        const pal = state.dayMode ? PALETTES.day : PALETTES.night;
+
+        ctx.fillStyle = pal.bg;
+        ctx.fillRect(0, 0, w, h);
+
+        const hdgInfo = getActiveHeading();
+        const hdgDeg = state.displayHeading;
+        const hdgRad = toRad(hdgDeg);
+
+        const hdgTxt = state.followGps
+          ? `Suund: ${Math.round(hdgDeg)}° (${hdgInfo.source})`
+          : `Vaba vaade · ${Math.round(hdgDeg)}°`;
+        if (hdgTxt !== state.lastHeadingText) {
+          state.lastHeadingText = hdgTxt;
+          el.headingBadge.textContent = hdgTxt;
+        }
+        updateScaleBadge();
+
+        // 1. KOMPASSIREŽIIM
+        if (state.mode === "compass") {
+          state.pois.rendered = [];
+          const cx = w / 2, cy = h / 2;
+          const r = Math.min(w, h) * 0.36;
+          drawCompassRing(ctx, cx, cy, r, hdgRad, pal, 18);
+
+          if (hasValidGps() && state.destination) {
+            const brg = bearingDegrees({ lat: state.gps.lat, lon: state.gps.lon }, state.destination);
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(toRad(brg - hdgDeg));
+            ctx.fillStyle = pal.route;
+            ctx.beginPath();
+            ctx.moveTo(0, -r * 0.78);
+            ctx.lineTo(22, r * 0.34);
+            ctx.lineTo(0, r * 0.14);
+            ctx.lineTo(-22, r * 0.34);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+          }
+          return;
+        }
+
+        // 2. TEEKONNA JA MAASTIKUKAARDI REŽIIM
+        const { cx, cy, radiusPx, pxPerM } = getCurrentMapMetrics();
+        const center = getMapCenter();
+        let toMapXY = null;
+
+        if (center) {
+          const cosLat = Math.cos(toRad(center.lat));
+
+          const exactZ = Math.log2(156543.03392 * cosLat * pxPerM);
+          if (state.currentTileZ === null || Math.abs(exactZ - state.currentTileZ) > 0.62) {
+            state.currentTileZ = Math.max(6, Math.min(17, Math.round(exactZ)));
+          }
+          const z = state.currentTileZ;
+          const tileSizePx = (40075016.68557849 * cosLat / Math.pow(2, z)) * pxPerM;
+          const centerTile = latLonToTileXY(center.lat, center.lon, z);
+
+          toMapXY = (pt) => {
+            const t = latLonToTileXY(pt.lat, pt.lon, z);
+            return {
+              x: (t.x - centerTile.x) * tileSizePx,
+              y: (t.y - centerTile.y) * tileSizePx
+            };
+          };
+
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.rotate(-hdgRad);
+
+          // A) VABAVARALINE OPENSTREETMAP ALUSKAART
+          if (state.baseMapMode === "both" || state.baseMapMode === "osm") {
+            const maxReachPx = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy)) + tileSizePx;
+            const spanTiles = Math.min(4, Math.ceil(maxReachPx / tileSizePx));
+            const baseTx = Math.floor(centerTile.x);
+            const baseTy = Math.floor(centerTile.y);
+
+            const hasVectorOverlay = state.baseMapMode === "both" && state.roads.ways.length > 0 && state.radarRadiusM <= 6000;
+            ctx.globalAlpha = hasVectorOverlay ? (state.dayMode ? 0.48 : 0.46) : (state.dayMode ? 0.82 : 0.78);
+            if (!state.dayMode && typeof ctx.filter === "string") {
+              ctx.filter = "invert(100%) hue-rotate(180deg) brightness(78%) contrast(105%) saturate(25%)";
+            }
+
+            for (let dxT = -spanTiles; dxT <= spanTiles; dxT++) {
+              for (let dyT = -spanTiles; dyT <= spanTiles; dyT++) {
+                const tx = baseTx + dxT;
+                const ty = baseTy + dyT;
+                const entry = getTileImage(z, tx, ty);
+                if (entry && entry.ready) {
+                  const drawX = (tx - centerTile.x) * tileSizePx;
+                  const drawY = (ty - centerTile.y) * tileSizePx;
+                  ctx.drawImage(entry.img, drawX, drawY, tileSizePx + 0.8, tileSizePx + 0.8);
+                }
+              }
+            }
+            if (typeof ctx.filter === "string") ctx.filter = "none";
+            ctx.globalAlpha = 1.0;
+          }
+
+          // B) OVERPASS VEKTOR-KÕRVALTEED PEENE HALLI JOONEGA
+          if (
+            (state.baseMapMode === "both" || state.baseMapMode === "vector") &&
+            state.roads.ways.length > 0 &&
+            state.radarRadiusM <= 6000
+          ) {
+            const maxViewM = (Math.hypot(w, h) / pxPerM) * 0.9;
+            const dLatSpan = maxViewM / 111320;
+            const dLonSpan = maxViewM / (111320 * Math.max(0.2, cosLat));
+            const vMinLat = center.lat - dLatSpan;
+            const vMaxLat = center.lat + dLatSpan;
+            const vMinLon = center.lon - dLonSpan;
+            const vMaxLon = center.lon + dLonSpan;
+
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+
+            const tiers = [
+              { id: "path",  col: pal.roadPath,  width: 1.2, dash: [3, 4] },
+              { id: "track", col: pal.roadTrack, width: 1.6, dash: [6, 3] },
+              { id: "minor", col: pal.roadMinor, width: 2.1, dash: [] },
+              { id: "main",  col: pal.roadMain,  width: 3.0, dash: [] }
+            ];
+
+            for (let t = 0; t < tiers.length; t++) {
+              const tier = tiers[t];
+              ctx.strokeStyle = tier.col;
+              ctx.lineWidth = tier.width;
+              ctx.setLineDash(tier.dash);
+              ctx.beginPath();
+
+              for (let i = 0; i < state.roads.ways.length; i++) {
+                const way = state.roads.ways[i];
+                if (way.tier !== tier.id) continue;
+                const bb = way.bbox;
+                if (bb[1] < vMinLat || bb[0] > vMaxLat || bb[3] < vMinLon || bb[2] > vMaxLon) continue;
+
+                const pts = way.pts;
+                for (let j = 0; j < pts.length; j++) {
+                  const p = toMapXY(pts[j]);
+                  if (j === 0) ctx.moveTo(p.x, p.y);
+                  else ctx.lineTo(p.x, p.y);
+                }
+              }
+              ctx.stroke();
+            }
+            ctx.setLineDash([]);
+          }
+
+          // C) AKTIIVNE MARSRUUT
+          if (state.route && state.route.coords.length > 1) {
+            const coords = state.route.coords;
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+
+            if (state.riderGeomIdx > 0) {
+              ctx.strokeStyle = pal.passed;
+              ctx.lineWidth = 6;
+              ctx.beginPath();
+              for (let i = 0; i <= state.riderGeomIdx; i++) {
+                const p = toMapXY(coords[i]);
+                if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+              }
+              ctx.stroke();
+            }
+
+            ctx.strokeStyle = pal.bg;
+            ctx.lineWidth = 10;
+            ctx.beginPath();
+            for (let i = state.riderGeomIdx; i < coords.length; i++) {
+              const p = toMapXY(coords[i]);
+              if (i === state.riderGeomIdx) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+            }
+            ctx.stroke();
+
+            ctx.strokeStyle = pal.route;
+            ctx.lineWidth = 6.5;
+            ctx.beginPath();
+            for (let i = state.riderGeomIdx; i < coords.length; i++) {
+              const p = toMapXY(coords[i]);
+              if (i === state.riderGeomIdx) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+            }
+            ctx.stroke();
+
+            if (state.destination) {
+              const lastRoadPt = coords[coords.length - 1];
+              if (distanceMeters(lastRoadPt, state.destination) > 15) {
+                const pEnd = toMapXY(lastRoadPt);
+                const pDest = toMapXY(state.destination);
+                ctx.strokeStyle = pal.accent;
+                ctx.lineWidth = 3;
+                ctx.setLineDash([6, 6]);
+                ctx.beginPath();
+                ctx.moveTo(pEnd.x, pEnd.y);
+                ctx.lineTo(pDest.x, pDest.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+              }
+            }
+
+            const activeStep = state.route.steps[state.activeStepIdx];
+            if (activeStep && state.radarRadiusM <= 5000) {
+              const mp = toMapXY(activeStep);
+              ctx.fillStyle = pal.accent;
+              ctx.beginPath();
+              ctx.arc(mp.x, mp.y, 8, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.strokeStyle = pal.bg;
+              ctx.lineWidth = 2.5;
+              ctx.stroke();
+            }
+          }
+
+          // D) TÄPNE SIHTPUNKTI SIHIK
+          if (state.destination) {
+            const dp = toMapXY(state.destination);
+            drawTargetCrosshair(ctx, dp.x, dp.y, pal);
+          }
+
+          // E) KUI KAARTI ON NIHUTATUD, JOONISTA SÕITJA TEGELIK GPS-NOOL KAARDILE
+          if (!state.followGps && hasValidGps()) {
+            const rp = toMapXY({ lat: state.gps.lat, lon: state.gps.lon });
+            drawRiderArrow(ctx, rp.x, rp.y, toRad(hdgInfo.deg), pal);
+          }
+
+          ctx.restore();
+        }
+
+        // F) KAUGUSRÕNGAS JA N/E/S/W KOMPASSIRING
+        ctx.strokeStyle = pal.border;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.arc(cx, cy, radiusPx * 0.5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        drawCompassRing(ctx, cx, cy, radiusPx, hdgRad, pal, 15);
+
+        // G) HUVIPUNKTID RINGI SEES (KLÕPSATAVAD)
+        if (center && toMapXY) {
+          drawPoisInsideCircle(ctx, cx, cy, radiusPx, hdgRad, toMapXY, pal);
+        }
+
+        // H) KESKPUNKT: GPS-JÄLGIMISEL SÕITJA NOOL, VABAS VAATES KESKRIST
+        if (state.followGps) {
+          ctx.strokeStyle = pal.accent;
+          ctx.lineWidth = 2;
+          ctx.setLineDash([3, 5]);
+          ctx.beginPath();
+          ctx.moveTo(cx, cy - 22);
+          ctx.lineTo(cx, cy - radiusPx + 14);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          drawRiderArrow(ctx, cx, cy, 0, pal);
+        } else {
+          ctx.strokeStyle = pal.accent;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(cx - 12, cy); ctx.lineTo(cx + 12, cy);
+          ctx.moveTo(cx, cy - 12); ctx.lineTo(cx, cy + 12);
+          ctx.stroke();
+        }
+
+        // I) PIKA VAJUTUSE TÄITUV LAADIMISRÕNGAS SÕRME ÜMBER
+        drawLongPressRing(ctx, pal);
+      }
+
+      function handleCanvasTap(clientX, clientY) {
+        if (state.mode !== "route" || !state.pois.rendered.length) return;
+        const rect = el.radarCanvas.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+
+        let best = null;
+        let bestDist = 36;
+        for (let i = 0; i < state.pois.rendered.length; i++) {
+          const item = state.pois.rendered[i];
+          const d = Math.hypot(x - item.sx, y - item.sy);
+          if (d < bestDist) {
+            bestDist = d;
+            best = item.poi;
+          }
+        }
+        if (best) routeToPoi(best);
+      }
+
+      function renderLoop(ts) {
+        if (state.followGps || state.orientMode === "north") {
+          const targetHdg = getActiveHeading().deg;
+          const hDiff = shortestAngleDelta(state.displayHeading, targetHdg);
+          if (Math.abs(hDiff) > 0.25) {
+            state.displayHeading = (state.displayHeading + hDiff * 0.22 + 360) % 360;
+            state.needsRedraw = true;
+          }
+        }
+
+        if (!state.isInteracting) {
+          const rDiff = state.targetRadiusM - state.radarRadiusM;
+          if (Math.abs(rDiff) > Math.max(2, state.targetRadiusM * 0.008)) {
+            state.radarRadiusM += rDiff * 0.14;
+            state.needsRedraw = true;
+          } else if (state.radarRadiusM !== state.targetRadiusM) {
+            state.radarRadiusM = state.targetRadiusM;
+            state.needsRedraw = true;
+          }
+        }
+
+        const animateLongPress = longPress.active && !longPress.triggered;
+        if (animateLongPress) {
+          state.needsRedraw = true;
+        }
+
+        const minFrameMs = (state.isInteracting || animateLongPress) ? 16 : 50;
+        if (state.needsRedraw && ts - state.lastDrawMs >= minFrameMs) {
+          state.needsRedraw = false;
+          state.lastDrawMs = ts;
+          drawRadar();
+        }
+        requestAnimationFrame(renderLoop);
+      }
+
+      /* ===================== ABI & SÜNDMUSED ===================== */
+
+      function playTurnChime() {
+        if (!state.soundOn) return;
+        try {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return;
+          const ctx = new AC();
+          const now = ctx.currentTime;
+          [880, 1175].forEach((f, i) => {
+            const o = ctx.createOscillator(), g = ctx.createGain();
+            o.frequency.setValueAtTime(f, now + i * 0.14);
+            g.gain.setValueAtTime(0.18, now + i * 0.14);
+            g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.14 + 0.12);
+            o.connect(g); g.connect(ctx.destination);
+            o.start(now + i * 0.14); o.stop(now + i * 0.14 + 0.13);
+          });
+        } catch (_) {}
+      }
+
+      function playShortConfirmBeep() {
+        if (!state.soundOn) return;
+        try {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return;
+          const ctx = new AC();
+          const now = ctx.currentTime;
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.frequency.setValueAtTime(1046, now);
+          g.gain.setValueAtTime(0.14, now);
+          g.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+          o.connect(g); g.connect(ctx.destination);
+          o.start(now); o.stop(now + 0.1);
+        } catch (_) {}
+      }
+
+      async function toggleWakeLock() {
+        if (!("wakeLock" in navigator)) {
+          addLog("Wake Lock puudub");
+          alert("See brauser ei toeta Wake Lock API-t.");
+          return;
+        }
+        try {
+          if (state.wakeLock) {
+            await state.wakeLock.release();
+            state.wakeLock = null;
+            el.wakeBtn.classList.remove("active");
+          } else {
+            state.wakeLock = await navigator.wakeLock.request("screen");
+            el.wakeBtn.classList.add("active");
+          }
+        } catch (e) {
+          addLog("Wake Lock viga: " + e.message);
+        }
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      }
+
+      function findNearestZoomIndex(radiusM) {
+        let bestIdx = 0, bestDiff = Infinity;
+        for (let i = 0; i < state.zoomLevels.length; i++) {
+          const d = Math.abs(state.zoomLevels[i] - radiusM);
+          if (d < bestDiff) { bestDiff = d; bestIdx = i; }
+        }
+        return bestIdx;
+      }
+
+      POI_CATEGORIES.forEach((cat) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "poi-cat-btn";
+        btn.setAttribute("data-cat", cat.id);
+        btn.innerHTML = `<span class="poi-dot" style="background:${cat.color}"></span><span>${escapeHtml(cat.label)}</span>`;
+        btn.addEventListener("click", () => {
+          state.pois.activeCatId = cat.id;
+          state.pois.items = [];
+          state.pois.radiusM = 0;
+          if (state.targetRadiusM < 2000) {
+            setManualRadius(5000, true);
+          } else {
+            fetchPois(true);
+          }
+        });
+        el.poiCatGrid.appendChild(btn);
+      });
+
+      el.poiRadiusRow.querySelectorAll(".radius-btn").forEach((b) => {
+        b.addEventListener("click", () => {
+          const r = parseInt(b.getAttribute("data-r"), 10);
+          setManualRadius(r, true);
+          renderPoiModalContent();
+        });
+      });
+
+      el.poiMenuBtn.addEventListener("click", () => {
+        renderPoiModalContent();
+        el.poiModal.classList.add("open");
+      });
+      el.poiShowMapBtn.addEventListener("click", () => {
+        el.poiModal.classList.remove("open");
+        state.needsRedraw = true;
+      });
+      el.poiRefreshBtn.addEventListener("click", () => fetchPois(true));
+      el.poiClearBtn.addEventListener("click", () => {
+        state.pois.activeCatId = null;
+        state.pois.items = [];
+        state.pois.rendered = [];
+        state.pois.sourceNote = "";
+        updatePoiButtonLabel();
+        renderPoiModalContent();
+        el.poiModal.classList.remove("open");
+        state.needsRedraw = true;
+      });
+
+      el.recenterBtn.addEventListener("click", recenterMap);
+
+      el.mgrsLive.addEventListener("click", () => {
+        const pt = getMapCenter();
+        if (!pt) return;
+        const txt = latLonToMGRS(pt.lat, pt.lon);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(txt).then(() => {
+            el.mgrsLive.textContent = "KOPEERITUD: " + txt;
+            setTimeout(updateMgrsBar, 1500);
+          }).catch(() => {});
+        }
+      });
+
+      el.autoZoomBtn.addEventListener("click", () => {
+        setAutoZoomMode(!state.autoZoom);
+        addLog("Automaatne suum: " + (state.autoZoom ? "SEES" : "VÄLJAS"));
+      });
+
+      el.orientBtn.addEventListener("click", () => {
+        const order = ["heading", "gps_only", "north"];
+        const labels = { heading: "SUUND ÜLES", gps_only: "AINULT GPS", north: "PÕHI ÜLES" };
+        state.orientMode = order[(order.indexOf(state.orientMode) + 1) % order.length];
+        el.orientBtn.textContent = labels[state.orientMode];
+        addLog("Kaardi orientatsioon: " + labels[state.orientMode]);
+        state.needsRedraw = true;
+      });
+
+      el.baseMapBtn.addEventListener("click", () => {
+        const order = ["both", "vector", "osm"];
+        const labels = { both: "ALUS: OSM+TEED", vector: "ALUS: TEED", osm: "ALUS: OSM" };
+        state.baseMapMode = order[(order.indexOf(state.baseMapMode) + 1) % order.length];
+        el.baseMapBtn.textContent = labels[state.baseMapMode];
+        state.needsRedraw = true;
+      });
+
+      el.searchBtn.addEventListener("click", searchDestination);
+      el.searchInput.addEventListener("keydown", (e) => { if (e.key === "Enter") searchDestination(); });
+      el.clearBtn.addEventListener("click", () => {
+        state.destination = null; state.route = null; state.offRoute = false; state.distToNextTurnM = null;
+        el.searchInput.value = ""; el.clearBtn.style.display = "none";
+        el.offrouteBanner.classList.remove("show");
+        el.turnDist.textContent = "--"; el.turnDist.className = "turn-dist";
+        el.remDistVal.textContent = "--"; el.etaVal.textContent = "--";
+        if (state.autoZoom && state.followGps) state.targetRadiusM = computeAutoZoomTarget();
+        updateGpsUI();
+        updateNavigation();
+        state.needsRedraw = true;
+      });
+      el.recalcBtn.addEventListener("click", calculateRoute);
+      el.modeBtn.addEventListener("click", () => {
+        state.mode = state.mode === "route" ? "compass" : "route";
+        el.modeBtn.textContent = state.mode === "route" ? "TEEKOND" : "KOMPASS";
+        if (state.mode === "route" && state.destination && !state.route && hasValidGps()) calculateRoute();
+        else updateNavigation();
+        if (state.autoZoom && state.followGps) state.targetRadiusM = computeAutoZoomTarget();
+        state.needsRedraw = true;
+      });
+      el.zoomInBtn.addEventListener("click", () => {
+        const curIdx = findNearestZoomIndex(state.targetRadiusM);
+        setManualRadius(state.zoomLevels[Math.max(0, curIdx - 1)], false);
+      });
+      el.zoomOutBtn.addEventListener("click", () => {
+        const curIdx = findNearestZoomIndex(state.targetRadiusM);
+        setManualRadius(state.zoomLevels[Math.min(state.zoomLevels.length - 1, curIdx + 1)], false);
+      });
+      el.themeBtn.addEventListener("click", () => {
+        state.dayMode = !state.dayMode;
+        document.body.classList.toggle("day", state.dayMode);
+        el.themeBtn.textContent = state.dayMode ? "PÄEV" : "ÖÖ";
+        state.needsRedraw = true;
+      });
+      el.soundBtn.addEventListener("click", () => {
+        state.soundOn = !state.soundOn;
+        el.soundBtn.classList.toggle("active", state.soundOn);
+        if (state.soundOn) playTurnChime();
+      });
+      el.wakeBtn.addEventListener("click", toggleWakeLock);
+      el.startGpsDirectBtn.addEventListener("click", () => startGps(false));
+      el.startNetGpsBtn.addEventListener("click", () => startGps(true));
+      el.hideCtaBtn.addEventListener("click", () => { state.ctaDismissed = true; updateGpsUI(); });
+      el.retryGpsBtn.addEventListener("click", () => startGps(false));
+      el.retryNetBtn.addEventListener("click", () => startGps(true));
+      el.reloadRoadsBtn.addEventListener("click", () => fetchNearbyRoads(true));
+      el.compassPermBtn.addEventListener("click", () => {
+        if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+          DeviceOrientationEvent.requestPermission().then((r) => {
+            if (r === "granted") initCompassListener();
+            addLog("Kompassi luba: " + r);
+          }).catch((e) => addLog("Kompassi viga: " + e.message));
+        } else {
+          initCompassListener();
+          addLog("Kompassi kuulaja aktiivne");
+        }
+      });
+      el.gpsPill.addEventListener("click", () => { updateGpsUI(); el.diagModal.classList.add("open"); });
+      el.closeDiagBtn.addEventListener("click", () => el.diagModal.classList.remove("open"));
+      window.addEventListener("resize", resizeCanvas);
+
+      addLog(`Käivitamine (${window.location.protocol}//${window.location.host || "kohalik"})`);
+      renderManeuverIcon("straight");
+      resizeCanvas();
+      updateScaleBadge();
+      updateGpsUI();
+      requestAnimationFrame(renderLoop);
+      try { initCompassListener(); } catch (_) {}
+      try {
+        if (navigator.permissions && navigator.permissions.query) {
+          navigator.permissions.query({ name: "geolocation" }).then((r) => {
+            state.gps.permState = r.state;
+            updateGpsUI();
+          }).catch(() => {});
+        }
+      } catch (_) {}
+    })();
+  </script>
+</body>
+</html>
+<!-- LÕPP -->
