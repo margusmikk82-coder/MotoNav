@@ -888,7 +888,7 @@
         else if (kmh <= 120) target = 1350 + ((kmh - 95) / 25) * 650;
         else target = 2000;
 
-        if (state.mode === "route" && state.route && !state.offRoute && Number.isFinite(state.distToNextTurnM)) {
+        if (state.route && !state.offRoute && Number.isFinite(state.distToNextTurnM)) {
           const d = state.distToNextTurnM;
           if (d <= 150) target = Math.min(target, 140);
           else if (d <= 350) target = Math.min(target, 140 + ((d - 150) / 200) * 110);
@@ -1343,7 +1343,7 @@
         let liveProj = state.riderProj;
         let basePos = rawPos;
 
-        if (state.mode === "route" && state.route && !state.offRoute && state.riderProj) {
+        if (state.route && !state.offRoute && state.riderProj) {
           liveProj = advanceM > 0
             ? pointAtRouteDistance(state.route, state.riderProj.alongM + advanceM, state.riderProj.segIdx)
             : state.riderProj;
@@ -1657,7 +1657,7 @@
       el.radarCanvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
       el.radarCanvas.addEventListener("pointerdown", (e) => {
-        if (state.mode !== "route" || !getMapCenter()) return;
+        if (!getMapCenter()) return;
         try { el.radarCanvas.setPointerCapture(e.pointerId); } catch (_) {}
 
         activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1772,7 +1772,7 @@
       el.radarCanvas.addEventListener("pointercancel", onPointerFinish);
 
       el.radarCanvas.addEventListener("wheel", (e) => {
-        if (state.mode !== "route" || !getMapCenter()) return;
+        if (!getMapCenter()) return;
         e.preventDefault();
         const factor = e.deltaY > 0 ? 1.25 : 0.8;
         setManualRadius(state.targetRadiusM * factor, false);
@@ -2842,13 +2842,13 @@
 
         updateGpsUI();
 
-        if (wasEmpty && state.destination && state.mode === "route" && !state.route) {
+        if (wasEmpty && state.destination && !state.route) {
           calculateRoute();
         } else {
           updateNavigation();
         }
 
-        const newBasePos = (state.mode === "route" && state.route && !state.offRoute && state.riderProj)
+        const newBasePos = (state.route && !state.offRoute && state.riderProj)
           ? getRouteAlignedPos(coord, state.riderProj, state.riderProj)
           : coord;
         if (prevRenderPos) {
@@ -3013,9 +3013,6 @@
           el.turnStreet.textContent = `${dest.name} — käivita GPS`;
           state.ctaDismissed = false;
           updateGpsUI();
-        } else if (state.mode === "compass") {
-          updateNavigation();
-          state.needsRedraw = true;
         } else {
           calculateRoute();
         }
@@ -3550,13 +3547,13 @@
 
         const pos = { lat: state.gps.lat, lon: state.gps.lon };
 
-        if (state.mode === "compass") {
+        if (state.mode === "compass" && !state.route) {
           state.distToNextTurnM = null;
           el.offrouteBanner.classList.remove("show");
           if (!state.destination) {
             el.turnDist.textContent = "--";
             el.turnDesc.textContent = "Kompassirežiim";
-            el.turnStreet.textContent = "Sisesta MGRS või vali huvipunkt";
+            el.turnStreet.textContent = "Sisesta sihtkoht vaates TEEKOND";
             el.remDistVal.textContent = "--";
             el.etaVal.textContent = "--";
             renderManeuverIcon("compass");
@@ -3908,10 +3905,12 @@
         ctx.fill();
       }
 
-      function drawRiderArrow(ctx, x, y, rotRad, pal, pitch3d) {
+      function drawRiderArrow(ctx, x, y, rotRad, pal, pitch3d, sizeScale) {
         const p = pitch3d || 0;
+        const sc = sizeScale || 1;
         ctx.save();
         ctx.translate(x, y);
+        if (sc !== 1) ctx.scale(sc, sc);
         if (p > 0.05) {
           ctx.fillStyle = state.dayMode ? "rgba(0,0,0,0.22)" : "rgba(0,230,118,0.18)";
           ctx.beginPath();
@@ -3932,6 +3931,54 @@
         ctx.fill();
         ctx.stroke();
         ctx.restore();
+      }
+
+      function drawCompactCompassPointer(ctx, cam, radiusPx, relRad, pal, hasRoute) {
+        // Väike, selge suunanool kompassiringi siseservas (ei kata keskel olevat teekonnajoont!)
+        const ptrR = Math.max(28, radiusPx - 16);
+        const rx = Math.sin(relRad) * ptrR;
+        const ry = -Math.cos(relRad) * ptrR;
+        const pBase = cam.projectRot(rx, Math.min(cam.maxRy, ry));
+        const pTip = cam.projectRot(
+          Math.sin(relRad) * (ptrR + 14),
+          Math.min(cam.maxRy, -Math.cos(relRad) * (ptrR + 14))
+        );
+        const ang = Math.atan2(pTip.sy - pBase.sy, pTip.sx - pBase.sx) + Math.PI / 2;
+
+        ctx.save();
+        ctx.translate(pBase.sx, pBase.sy);
+        ctx.rotate(ang);
+        ctx.fillStyle = pal.accent;
+        ctx.strokeStyle = pal.bg;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, -10);
+        ctx.lineTo(6.5, 6);
+        ctx.lineTo(0, 2.5);
+        ctx.lineTo(-6.5, 6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+
+        // Kui teekonda pole veel arvutatud, näita ka keskel kompaktset väikest suunanoolt (~22 px)
+        if (!hasRoute) {
+          ctx.save();
+          ctx.translate(cam.cx, cam.cy);
+          ctx.rotate(relRad);
+          ctx.fillStyle = pal.route;
+          ctx.strokeStyle = pal.bg;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(0, -24);
+          ctx.lineTo(8, 8);
+          ctx.lineTo(0, 2);
+          ctx.lineTo(-8, 8);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        }
       }
 
       function drawLongPressRing(ctx, pal) {
@@ -4072,33 +4119,11 @@
         }
         updateScaleBadge();
 
-        // 1. KOMPASSIREŽIIM
-        if (state.mode === "compass") {
+        // TEEKONNA JA MINIMALISTLIKU KOMPASSI REŽIIM (2D JA 3D PERSPEKTIIV)
+        const isMinimalCompass = state.mode === "compass";
+        if (isMinimalCompass) {
           state.pois.rendered = [];
-          const cx = w / 2, cy = h / 2;
-          const r = Math.min(w, h) * 0.36;
-          const flatCam = createMapCamera({ cx, cy, w, h, pitch: 0 });
-          drawCompassRing(ctx, flatCam, r, hdgRad, pal, 18);
-
-          if (hasValidGps() && state.destination) {
-            const brg = bearingDegrees({ lat: state.gps.lat, lon: state.gps.lon }, state.destination);
-            ctx.save();
-            ctx.translate(cx, cy);
-            ctx.rotate(toRad(brg - hdgDeg));
-            ctx.fillStyle = pal.route;
-            ctx.beginPath();
-            ctx.moveTo(0, -r * 0.78);
-            ctx.lineTo(22, r * 0.34);
-            ctx.lineTo(0, r * 0.14);
-            ctx.lineTo(-22, r * 0.34);
-            ctx.closePath();
-            ctx.fill();
-            ctx.restore();
-          }
-          return;
         }
-
-        // 2. TEEKONNA JA MAASTIKUKAARDI REŽIIM (2D JA 3D PERSPEKTIIV)
         const metrics = getCurrentMapMetrics();
         const { cx, cy, radiusPx, pxPerM } = metrics;
         const cam = createMapCamera(metrics);
@@ -4135,8 +4160,8 @@
             };
           };
 
-          // A0) KIIRE GRAAFILINE VEKTORKAART (MUST/VALGE + HELEDAD/TUMEDAD TEED + ALATI SININE VESI)
-          if (bm.isVectorGraphic) {
+          // A0) KIIRE GRAAFILINE VEKTORKAART (AINULT TEEKONNA VAATES — KOMPASSIVAATES PUHAS TAUST)
+          if (!isMinimalCompass && bm.isVectorGraphic) {
             const drawTiles = [];
             if (!cam.is3d) {
               const reachPx = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy));
@@ -4538,8 +4563,8 @@
             }
           }
 
-          // A) RASTER-ALUSKAARDID (EESTI ETAK / HÜBRIID — 2D JA 3D PERSPEKTIIV)
-          if (!bm.isVectorGraphic && bm.layers && bm.layers.length > 0) {
+          // A) RASTER-ALUSKAARDID (AINULT TEEKONNA VAATES — KOMPASSIVAATES PUHAS TAUST)
+          if (!isMinimalCompass && !bm.isVectorGraphic && bm.layers && bm.layers.length > 0) {
             const drawRasterLayers = (tCtx, targetScale, reachPx, shiftFwdPx) => {
               const baseAlpha = state.dayMode ? 0.96 : 0.90;
               for (let li = 0; li < bm.layers.length; li++) {
@@ -4665,7 +4690,7 @@
             }
           }
 
-          // C) AKTIIVNE MARSRUUT (2D JA 3D PERSPEKTIIV-LAIUSEGA)
+          // C) AKTIIVNE MARSRUUT (2D JA 3D PERSPEKTIIV-LAIUSEGA; KOMPASSIVAATES AINUS GRAAFILINE PÕHITEE)
           if (state.route && state.route.coords.length > 1) {
             const coords = state.route.coords;
             const drawProj = state.liveRiderProj || state.riderProj;
@@ -4682,13 +4707,13 @@
               const passedPts = [];
               for (let i = 0; i <= splitSegIdx; i++) passedPts.push(toRotXY(coords[i]));
               passedPts.push(rotSplit);
-              drawRoutePolyline(ctx, passedPts, pal.passed, 6, [], cam);
+              drawRoutePolyline(ctx, passedPts, pal.passed, isMinimalCompass ? 5 : 6, [], cam);
             }
 
             const aheadPts = [rotSplit];
             for (let i = splitSegIdx + 1; i < coords.length; i++) aheadPts.push(toRotXY(coords[i]));
-            drawRoutePolyline(ctx, aheadPts, pal.bg, 10, [], cam);
-            drawRoutePolyline(ctx, aheadPts, pal.route, 6.5, [], cam);
+            drawRoutePolyline(ctx, aheadPts, pal.bg, isMinimalCompass ? 11.5 : 10, [], cam);
+            drawRoutePolyline(ctx, aheadPts, pal.route, isMinimalCompass ? 7.5 : 6.5, [], cam);
 
             if (state.destination) {
               const lastRoadPt = coords[coords.length - 1];
@@ -4712,6 +4737,11 @@
                 ctx.stroke();
               }
             }
+          } else if (isMinimalCompass && state.destination && hasValidGps()) {
+            // Kui teekonda pole (nt maastiku MGRS punkt), näita sihtkohani minimalistlik katkendjoon
+            const rStart = toRotXY(state.gps.renderPos || { lat: state.gps.lat, lon: state.gps.lon });
+            const rEnd = toRotXY(state.destination);
+            drawRoutePolyline(ctx, [rStart, rEnd], pal.route, 3.5, [8, 7], cam);
           }
 
           // D) 3D HORISONDI HÄGUSUS (KUI 3D REŽIIM ON AKTIIVNE)
@@ -4732,7 +4762,7 @@
             const rRider = toRotXY(state.gps.renderPos || { lat: state.gps.lat, lon: state.gps.lon });
             if (!cam.is3d || (rRider.ry <= cam.maxRy && rRider.ry >= cam.minRy)) {
               const rp = cam.projectRot(rRider.rx, rRider.ry);
-              drawRiderArrow(ctx, rp.sx, rp.sy, toRad(hdgInfo.deg) - hdgRad, pal, cam.pitch);
+              drawRiderArrow(ctx, rp.sx, rp.sy, toRad(hdgInfo.deg) - hdgRad, pal, cam.pitch, isMinimalCompass ? 0.72 : 1);
             }
           }
         }
@@ -4747,25 +4777,35 @@
 
         drawCompassRing(ctx, cam, radiusPx, hdgRad, pal, 15);
 
-        // H) HUVIPUNKTID RINGI SEES (KLÕPSATAVAD)
-        if (center && toMapXY) {
+        // G2) KOMPASSIVAATE KOMPAKTNE SUUNANOOL (OLULISELT VÄIKSEM — EI KATA TEEKONDA)
+        if (isMinimalCompass && hasValidGps() && state.destination) {
+          const curGps = state.gps.renderPos || { lat: state.gps.lat, lon: state.gps.lon };
+          const brg = bearingDegrees(curGps, state.destination);
+          const hasMainRoute = Boolean(state.route && state.route.coords.length > 1);
+          drawCompactCompassPointer(ctx, cam, radiusPx, toRad(brg - hdgDeg), pal, hasMainRoute);
+        }
+
+        // H) HUVIPUNKTID RINGI SEES (AINULT TEEKONNA VAATES — KOMPASSIVAADE ON MINIMALISTLIK)
+        if (!isMinimalCompass && center && toMapXY) {
           drawPoisInsideCircle(ctx, cam, radiusPx, hdgRad, toMapXY, pal);
         }
 
         // I) KESKPUNKT: GPS-JÄLGIMISEL SÕITJA NOOL, VABAS VAATES KESKRIST
         if (state.followGps) {
-          const pGuide0 = cam.projectRot(0, -22);
-          const pGuide1 = cam.projectRot(0, -(radiusPx - 14));
-          ctx.strokeStyle = pal.accent;
-          ctx.lineWidth = 2;
-          ctx.setLineDash([3, 5]);
-          ctx.beginPath();
-          ctx.moveTo(pGuide0.sx, pGuide0.sy);
-          ctx.lineTo(pGuide1.sx, pGuide1.sy);
-          ctx.stroke();
-          ctx.setLineDash([]);
+          if (!isMinimalCompass) {
+            const pGuide0 = cam.projectRot(0, -22);
+            const pGuide1 = cam.projectRot(0, -(radiusPx - 14));
+            ctx.strokeStyle = pal.accent;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([3, 5]);
+            ctx.beginPath();
+            ctx.moveTo(pGuide0.sx, pGuide0.sy);
+            ctx.lineTo(pGuide1.sx, pGuide1.sy);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
 
-          drawRiderArrow(ctx, cx, cy, 0, pal, cam.pitch);
+          drawRiderArrow(ctx, cx, cy, 0, pal, cam.pitch, isMinimalCompass ? 0.72 : 1);
         } else {
           ctx.strokeStyle = pal.accent;
           ctx.lineWidth = 2;
@@ -4773,6 +4813,14 @@
           ctx.moveTo(cx - 12, cy); ctx.lineTo(cx + 12, cy);
           ctx.moveTo(cx, cy - 12); ctx.lineTo(cx, cy + 12);
           ctx.stroke();
+        }
+
+        if (isMinimalCompass && !state.route && !state.destination) {
+          ctx.fillStyle = pal.muted;
+          ctx.font = "700 12px system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("Sisesta teekond vaates TEEKOND", cx, Math.min(h - 24, cy + radiusPx * 0.45));
         }
 
         // J) PIKA VAJUTUSE TÄITUV LAADIMISRÕNGAS SÕRME ÜMBER
@@ -4806,7 +4854,6 @@
         if (liveMotion && liveMotion.animating) {
           state.needsRedraw = true;
           if (
-            state.mode === "route" &&
             state.route &&
             !state.offRoute &&
             liveMotion.proj &&
@@ -5113,7 +5160,12 @@
       el.modeBtn.addEventListener("click", () => {
         state.mode = state.mode === "route" ? "compass" : "route";
         el.modeBtn.textContent = state.mode === "route" ? "TEEKOND" : "KOMPASS";
-        if (state.mode === "route" && state.destination && !state.route && hasValidGps()) calculateRoute();
+        if (state.mode === "compass") {
+          el.roadsStatus.textContent = "Kompass: ainult põhitee";
+        } else if (!state.pois.activeCatId) {
+          el.roadsStatus.textContent = getActiveBaseMap().shortStatus;
+        }
+        if (state.destination && !state.route && hasValidGps()) calculateRoute();
         else updateNavigation();
         if (state.autoZoom && state.followGps) state.targetRadiusM = computeAutoZoomTarget();
         state.needsRedraw = true;
