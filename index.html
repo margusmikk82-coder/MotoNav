@@ -549,13 +549,25 @@
         {
           id: "fuel", label: "Tanklad", code: "T", color: "#ff5252",
           overpass: ['["amenity"="fuel"]'],
-          photonQueries: ["tankla", "Olerex", "Alexela", "Circle K"],
+          photonTags: ["amenity:fuel"],
+          photonQueries: ["tankla", "Olerex", "Alexela", "Circle K", "Neste", "Terminal"],
+          nominatimTerms: ["tankla", "fuel"],
           matchValues: ["fuel"]
         },
         {
+          id: "food", label: "Söögikohad", code: "S", color: "#ff9800",
+          overpass: ['["amenity"~"^(restaurant|cafe|fast_food|pub|bar|food_court|bistro)$"]'],
+          photonTags: ["amenity:restaurant", "amenity:cafe", "amenity:fast_food", "amenity:pub"],
+          photonQueries: ["restoran", "kohvik", "pubi", "bistroo", "söögikoht", "Hesburger"],
+          nominatimTerms: ["restoran", "kohvik"],
+          matchValues: ["restaurant", "cafe", "fast_food", "pub", "bar", "biergarten", "food_court", "bistro"]
+        },
+        {
           id: "sleep", label: "Majutus", code: "M", color: "#29b6f6",
-          overpass: ['["tourism"~"^(hotel|motel|guest_house|camp_site|hostel)$"]'],
-          photonQueries: ["hotell", "külalistemaja", "puhkemaja", "kämping"],
+          overpass: ['["tourism"~"^(hotel|motel|guest_house|camp_site|hostel|chalet)$"]'],
+          photonTags: ["tourism:hotel", "tourism:guest_house", "tourism:motel", "tourism:camp_site", "tourism:hostel"],
+          photonQueries: ["hotell", "külalistemaja", "puhkemaja", "kämping", "hostel"],
+          nominatimTerms: ["hotell", "külalistemaja"],
           matchValues: ["hotel", "motel", "guest_house", "camp_site", "hostel", "chalet", "apartment"]
         }
       ];
@@ -674,9 +686,9 @@
       };
 
       const OVERPASS_ENDPOINTS = [
-        "https://overpass-api.de/api/interpreter",
         "https://overpass.private.coffee/api/interpreter",
-        "https://maps.mail.ru/osm/tools/overpass/api/interpreter"
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.osm.ch/api/interpreter"
       ];
 
       const tileCache = new Map();
@@ -741,6 +753,7 @@
           center: null,
           radiusM: 0,
           fetching: false,
+          lastAttemptMs: 0,
           sourceNote: "",
           rendered: []
         },
@@ -813,15 +826,23 @@
         return fetch(url, opts).finally(() => clearTimeout(timer));
       }
 
-      function enqueueOverpass(query, tag) {
+      function enqueueOverpass(query, tag, shouldCancel) {
         const job = async () => {
-          const waitMs = Math.max(0, 900 - (Date.now() - lastOverpassEndMs));
+          if (typeof shouldCancel === "function" && shouldCancel()) return null;
+          const waitMs = Math.max(0, 500 - (Date.now() - lastOverpassEndMs));
           if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+          if (typeof shouldCancel === "function" && shouldCancel()) return null;
 
+          const body = "data=" + encodeURIComponent(query);
           for (let i = 0; i < OVERPASS_ENDPOINTS.length; i++) {
-            const url = OVERPASS_ENDPOINTS[i] + "?data=" + encodeURIComponent(query);
+            if (typeof shouldCancel === "function" && shouldCancel()) return null;
+            const endpoint = OVERPASS_ENDPOINTS[i];
             try {
-              const res = await fetchWithTimeout(url, { method: "GET" }, 8500);
+              const res = await fetchWithTimeout(endpoint, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+                body
+              }, 12000);
               if (res.ok) {
                 const json = await res.json();
                 lastOverpassEndMs = Date.now();
@@ -829,7 +850,7 @@
               }
               addLog(`${tag} #${i + 1} HTTP ${res.status}`);
             } catch (err) {
-              const reason = err && err.name === "AbortError" ? "aegus (8.5 s)" : (err.message || "võrguviga");
+              const reason = err && err.name === "AbortError" ? "aegus (12 s)" : (err.message || "võrguviga");
               addLog(`${tag} #${i + 1}: ${reason}`);
             }
           }
@@ -886,14 +907,14 @@
         state.needsRedraw = true;
       }
 
-      function setManualRadius(radiusM, skipRoadFetch) {
+      function setManualRadius(radiusM, skipRoadFetch, skipPoiFetch) {
         const clamped = Math.max(75, Math.min(100000, radiusM));
         state.targetRadiusM = clamped;
         state.zoomIndex = findNearestZoomIndex(clamped);
         setAutoZoomMode(false);
         updatePoiRadiusButtons();
-        if (state.pois.activeCatId) {
-          fetchPois(false);
+        if (!skipPoiFetch && state.pois.activeCatId) {
+          fetchPois(clamped > state.pois.radiusM);
         }
         const bm = getActiveBaseMap();
         if (!skipRoadFetch && bm.useVectorOverlay && clamped <= 5000) {
@@ -1771,13 +1792,28 @@
         return arr;
       }
 
+      function getSearchBbox(center, reqRadius) {
+        const dLat = reqRadius / 111320;
+        const dLon = reqRadius / (111320 * Math.max(0.2, Math.cos(toRad(center.lat))));
+        return {
+          s: Math.max(-85, center.lat - dLat).toFixed(4),
+          n: Math.min(85, center.lat + dLat).toFixed(4),
+          w: Math.max(-180, center.lon - dLon).toFixed(4),
+          e: Math.min(180, center.lon + dLon).toFixed(4)
+        };
+      }
+
       async function fetchPoisFromPhoton(cat, center, reqRadius) {
         const results = [];
         const queries = cat.photonQueries || [];
+        const bb = getSearchBbox(center, reqRadius);
+        const tagParam = (cat.photonTags && cat.photonTags.length === 1)
+          ? `&osm_tag=${encodeURIComponent(cat.photonTags[0])}`
+          : "";
         const calls = queries.map(async (q) => {
           try {
-            const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=${center.lat.toFixed(4)}&lon=${center.lon.toFixed(4)}&limit=25`;
-            const res = await fetchWithTimeout(url, { method: "GET" }, 5500);
+            const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=${center.lat.toFixed(4)}&lon=${center.lon.toFixed(4)}&bbox=${bb.w},${bb.s},${bb.e},${bb.n}&limit=30${tagParam}`;
+            const res = await fetchWithTimeout(url, { method: "GET" }, 6500);
             if (!res.ok) return;
             const data = await res.json();
             if (!data || !Array.isArray(data.features)) return;
@@ -1817,30 +1853,16 @@
         return results;
       }
 
-      async function fetchPoisFromOverpass(cat, center, reqRadius) {
-        const dLat = reqRadius / 111320;
-        const dLon = reqRadius / (111320 * Math.max(0.2, Math.cos(toRad(center.lat))));
-        const s = (center.lat - dLat).toFixed(4);
-        const n = (center.lat + dLat).toFixed(4);
-        const w = (center.lon - dLon).toFixed(4);
-        const e = (center.lon + dLon).toFixed(4);
-
-        const wideArea = reqRadius > 20000;
+      async function fetchPoisFromOverpass(cat, center, reqRadius, shouldCancel) {
+        const bb = getSearchBbox(center, reqRadius);
         const parts = [];
         for (let i = 0; i < cat.overpass.length; i++) {
           const f = cat.overpass[i];
-          if (wideArea) {
-            parts.push(`node${f}(${s},${w},${n},${e});`);
-          } else {
-            parts.push(`node${f}(${s},${w},${n},${e});way${f}(${s},${w},${n},${e});`);
-          }
+          parts.push(`nwr${f}(${bb.s},${bb.w},${bb.n},${bb.e});`);
         }
 
-        const query = wideArea
-          ? `[out:json][timeout:14];(${parts.join("")});out qt 300;`
-          : `[out:json][timeout:14];(${parts.join("")});out center qt 260;`;
-
-        const data = await enqueueOverpass(query, "POI-Overpass");
+        const query = `[out:json][timeout:14];(${parts.join("")});out center qt 280;`;
+        const data = await enqueueOverpass(query, "POI-Overpass", shouldCancel);
         if (!data || !Array.isArray(data.elements)) return null;
 
         const out = [];
@@ -1857,13 +1879,43 @@
           const name = tags.name || tags.brand || tags.operator || cat.label;
           const sub = tags.brand && tags.brand !== name
             ? tags.brand
-            : (tags["addr:city"] || tags["addr:street"] || tags.historic || tags.tourism || tags.amenity || "");
+            : (tags["addr:city"] || tags["addr:street"] || tags.tourism || tags.amenity || "");
 
           out.push({
             id: `ov_${elem.type}_${elem.id}`,
             lat: c.lat, lon: c.lon, name, sub,
             catId: cat.id, color: cat.color, code: cat.code, distM: d
           });
+        }
+        return out;
+      }
+
+      async function fetchPoisFromNominatim(cat, center, reqRadius) {
+        const terms = cat.nominatimTerms || [];
+        const bb = getSearchBbox(center, reqRadius);
+        const out = [];
+        for (let t = 0; t < terms.length; t++) {
+          try {
+            const url = `https://nominatim.openstreetmap.org/search?format=json&bounded=1&viewbox=${bb.w},${bb.n},${bb.e},${bb.s}&limit=25&accept-language=et&q=${encodeURIComponent(terms[t])}`;
+            const res = await fetchWithTimeout(url, { method: "GET" }, 6500);
+            if (!res.ok) continue;
+            const arr = await res.json();
+            if (!Array.isArray(arr)) continue;
+            for (let i = 0; i < arr.length; i++) {
+              const it = arr[i];
+              const c = toValidCoord(it.lat, it.lon);
+              if (!c) continue;
+              const d = distanceMeters(center, c);
+              if (d > reqRadius) continue;
+              const name = (it.name && it.name.trim()) || (it.display_name ? it.display_name.split(",")[0] : cat.label);
+              const sub = it.display_name ? it.display_name.split(",").slice(1, 3).join(",").trim() : "";
+              out.push({
+                id: `nm_${it.osm_id || i}_${Math.round(c.lat * 10000)}`,
+                lat: c.lat, lon: c.lon, name, sub,
+                catId: cat.id, color: cat.color, code: cat.code, distM: d
+              });
+            }
+          } catch (_) {}
         }
         return out;
       }
@@ -1880,9 +1932,16 @@
 
         const reqRadius = Math.max(1000, Math.min(100000, Math.round(state.targetRadiusM)));
 
-        if (!force && state.pois.center && state.pois.radiusM >= reqRadius && state.pois.items.length > 0) {
+        // Ära katkesta pooleliolevat POI-päringut iga 1 s GPS-i uuendusega!
+        if (!force && state.pois.fetching) {
+          updatePoiButtonLabel();
+          return;
+        }
+
+        if (!force && state.pois.center && state.pois.radiusM >= reqRadius) {
           const moved = distanceMeters(state.pois.center, center);
-          if (moved < state.pois.radiusM * 0.35) {
+          const recentEmpty = state.pois.items.length === 0 && (Date.now() - state.pois.lastAttemptMs) < 15000;
+          if ((state.pois.items.length > 0 && moved < state.pois.radiusM * 0.35) || (recentEmpty && moved < Math.max(300, reqRadius * 0.25))) {
             updatePoiButtonLabel();
             renderPoiModalContent();
             state.needsRedraw = true;
@@ -1891,7 +1950,9 @@
         }
 
         const mySeq = ++state.pois.reqSeq;
+        const isCancelled = () => mySeq !== state.pois.reqSeq;
         state.pois.fetching = true;
+        state.pois.lastAttemptMs = Date.now();
         state.pois.sourceNote = "otsin...";
         updatePoiButtonLabel();
         renderPoiModalContent();
@@ -1899,7 +1960,7 @@
         addLog(`POI otsing: ${cat.label} (${formatDistance(reqRadius)})`);
 
         const photonPromise = fetchPoisFromPhoton(cat, center, reqRadius).then((phItems) => {
-          if (mySeq !== state.pois.reqSeq) return;
+          if (isCancelled()) return;
           if (phItems.length > 0) {
             state.pois.items = mergePoiItems(state.pois.items, phItems, center, reqRadius);
             state.pois.center = center;
@@ -1912,19 +1973,34 @@
           }
         });
 
-        const overpassPromise = fetchPoisFromOverpass(cat, center, reqRadius).then((ovItems) => {
-          if (mySeq !== state.pois.reqSeq) return;
+        const overpassPromise = fetchPoisFromOverpass(cat, center, reqRadius, isCancelled).then((ovItems) => {
+          if (isCancelled()) return;
           if (ovItems && ovItems.length > 0) {
             state.pois.items = mergePoiItems(ovItems, state.pois.items, center, reqRadius);
             state.pois.center = center;
             state.pois.radiusM = Math.max(state.pois.radiusM, reqRadius);
             addLog(`Overpass POI: +${ovItems.length} (${cat.label})`);
+            updatePoiButtonLabel();
+            renderPoiModalContent();
+            state.needsRedraw = true;
           }
         });
 
         await Promise.all([photonPromise, overpassPromise]);
-        if (mySeq !== state.pois.reqSeq) return;
+        if (isCancelled()) return;
 
+        // Varuallikas Nominatim, kui Photon + Overpass ei andnud tulemusi
+        if (state.pois.items.length === 0) {
+          const nmItems = await fetchPoisFromNominatim(cat, center, reqRadius);
+          if (isCancelled()) return;
+          if (nmItems.length > 0) {
+            state.pois.items = mergePoiItems(state.pois.items, nmItems, center, reqRadius);
+            addLog(`Nominatim POI: +${nmItems.length} (${cat.label})`);
+          }
+        }
+
+        state.pois.center = center;
+        state.pois.radiusM = Math.max(state.pois.radiusM, reqRadius);
         state.pois.fetching = false;
         const cnt = countPoisInCircle();
         state.pois.sourceNote = cnt > 0 ? `${cnt} punkti ringis` : "tulemusi ei leitud";
@@ -3479,11 +3555,11 @@
           state.pois.activeCatId = cat.id;
           state.pois.items = [];
           state.pois.radiusM = 0;
+          state.pois.lastAttemptMs = 0;
           if (state.targetRadiusM < 2000) {
-            setManualRadius(5000, true);
-          } else {
-            fetchPois(true);
+            setManualRadius(5000, true, true);
           }
+          fetchPois(true);
         });
         el.poiCatGrid.appendChild(btn);
       });
@@ -3506,8 +3582,12 @@
       });
       el.poiRefreshBtn.addEventListener("click", () => fetchPois(true));
       el.poiClearBtn.addEventListener("click", () => {
+        state.pois.reqSeq += 1;
+        state.pois.fetching = false;
         state.pois.activeCatId = null;
         state.pois.items = [];
+        state.pois.radiusM = 0;
+        state.pois.lastAttemptMs = 0;
         state.pois.rendered = [];
         state.pois.sourceNote = "";
         updatePoiButtonLabel();
