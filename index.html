@@ -121,6 +121,84 @@
       line-height: 1.3; font-family: inherit;
     }
 
+    .wp-btn {
+      min-width: auto; padding: 0 9px; font-size: 12px; white-space: nowrap;
+    }
+    .wp-btn.has-wp {
+      border-color: var(--accent); color: var(--accent);
+    }
+
+    .route-profile-row {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px;
+      margin-top: 6px;
+    }
+    .profile-btn {
+      min-height: 32px; padding: 0 6px; border-radius: 8px;
+      border: 2px solid var(--border); background: var(--bg);
+      color: var(--muted); font-size: 12px; font-weight: 800; cursor: pointer;
+      letter-spacing: 0.3px; white-space: nowrap;
+    }
+    .profile-btn.active {
+      border-color: var(--ok); color: var(--ok); background: rgba(0, 230, 118, 0.12);
+    }
+    .profile-btn.active[data-profile="curvy"] {
+      border-color: var(--accent); color: var(--accent); background: rgba(255, 170, 0, 0.14);
+    }
+    .profile-btn.active[data-profile="gravel"] {
+      border-color: #d4a359; color: #f0c27b; background: rgba(212, 163, 89, 0.16);
+    }
+    body.day .profile-btn.active[data-profile="gravel"] {
+      border-color: #9c6615; color: #7a4d08; background: rgba(156, 102, 21, 0.14);
+    }
+
+    .wp-pick-banner {
+      position: absolute; left: 50%; top: 44px; transform: translateX(-50%);
+      display: none; align-items: center; gap: 8px; padding: 6px 10px;
+      background: rgba(18, 18, 18, 0.96); border: 2px solid var(--accent);
+      border-radius: 10px; color: #ffffff; font-size: 12px; font-weight: 800;
+      z-index: 16; max-width: 94%;
+    }
+    .wp-pick-banner.show { display: flex; }
+    body.day .wp-pick-banner { background: rgba(255, 255, 255, 0.96); color: #000000; }
+    .wp-pick-banner button {
+      min-height: 28px; padding: 0 8px; border-radius: 7px;
+      border: 1px solid var(--accent); background: var(--accent); color: #000000;
+      font-size: 11px; font-weight: 900; cursor: pointer;
+    }
+
+    .wp-search-box { position: relative; margin-bottom: 10px; }
+    .wp-results {
+      background: var(--bg); border: 2px solid var(--accent); border-radius: 10px;
+      max-height: 180px; overflow-y: auto; margin-top: 6px; display: none;
+    }
+    .wp-results.open { display: block; }
+    .wp-list {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+      max-height: 220px; overflow-y: auto; margin-bottom: 10px;
+    }
+    .wp-item {
+      display: flex; align-items: center; gap: 8px; padding: 9px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .wp-item:last-child { border-bottom: none; }
+    .wp-num {
+      width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+      background: var(--accent); color: #000000; font-size: 12px; font-weight: 900;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .wp-item.passed .wp-num { background: var(--muted); }
+    .wp-item-name {
+      flex: 1; min-width: 0; font-size: 13px; font-weight: 700;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .wp-item.passed .wp-item-name { text-decoration: line-through; color: var(--muted); }
+    .wp-item-btns { display: flex; gap: 4px; flex-shrink: 0; }
+    .wp-mini-btn {
+      min-width: 30px; min-height: 30px; border-radius: 7px;
+      border: 1px solid var(--border); background: var(--surface-2);
+      color: var(--text); font-size: 12px; font-weight: 800; cursor: pointer;
+    }
+
     .main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 
     .maneuver-box {
@@ -393,8 +471,10 @@
         min-height: 36px; min-width: 46px; padding: 0 8px; font-size: 12px;
       }
       .search-wrap .icon-btn {
-        min-width: 34px; min-height: 36px; padding: 0 6px; font-size: 12px;
+        min-width: 32px; min-height: 36px; padding: 0 5px; font-size: 11px;
       }
+      .route-profile-row { margin-top: 5px; gap: 4px; }
+      .profile-btn { min-height: 28px; padding: 0 3px; font-size: 10px; }
       .results {
         left: 6px; right: auto; top: 46px;
         width: min(380px, 54vw);
@@ -502,7 +582,13 @@
       <div class="search-row">
         <input id="searchInput" class="search-input" type="search" placeholder="Sisesta aadress või kohanimi (alates 3 tähest)" autocomplete="off" />
         <button id="searchBtn" class="btn-primary" type="button">OTSI</button>
+        <button id="wpBtn" class="icon-btn wp-btn" type="button" title="Lisa või muuda vahepeatusi">+ PEATUS</button>
         <button id="clearBtn" class="icon-btn" type="button" style="display:none;">✕</button>
+      </div>
+      <div id="routeProfileRow" class="route-profile-row" role="group" aria-label="Marsruudi tüüp">
+        <button class="profile-btn active" data-profile="direct" type="button">OTSE</button>
+        <button class="profile-btn" data-profile="curvy" type="button">KURVILINE</button>
+        <button class="profile-btn" data-profile="gravel" type="button">PINNAS</button>
       </div>
       <div id="results" class="results"></div>
     </div>
@@ -531,6 +617,10 @@
         </div>
 
         <div id="poiToast" class="poi-toast"></div>
+        <div id="wpPickBanner" class="wp-pick-banner">
+          <span>Puuduta kaardil vahepeatust</span>
+          <button id="wpPickCancelBtn" type="button">LOOBU</button>
+        </div>
 
         <div id="gpsCta" class="gps-cta">
           <p id="gpsCtaText">Vajuta «KÄIVITA GPS» (õues) või «VÕRGU-GPS» (siseruumides).</p>
@@ -599,6 +689,32 @@
     </div>
   </div>
 
+  <!-- Vahepeatuste (marsruudi kujundamise) menüü -->
+  <div id="wpModal" class="modal-backdrop">
+    <div class="modal">
+      <h2>Vahepeatused enne sihtkohta</h2>
+      <p class="modal-sub">Kujunda oma teekond lisades vahepeatusi aadressi järgi (alates 3 tähest) või otse kaardilt.</p>
+
+      <div class="wp-search-box">
+        <div class="search-row">
+          <input id="wpSearchInput" class="search-input" type="search" placeholder="Lisa vahepeatuse aadress (alates 3 tähest)" autocomplete="off" />
+          <button id="wpSearchBtn" class="btn-primary" type="button">OTSI</button>
+        </div>
+        <div id="wpSearchResults" class="wp-results"></div>
+      </div>
+
+      <div id="wpList" class="wp-list">
+        <div class="poi-list-empty">Vahepeatusi pole lisatud.</div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="wpPickMapBtn" class="primary" type="button">VALI KAARDILT</button>
+        <button id="wpClearAllBtn" type="button">TÜHJENDA</button>
+        <button id="wpCloseBtn" type="button">SULGE</button>
+      </div>
+    </div>
+  </div>
+
   <!-- GPS Diagnostika -->
   <div id="diagModal" class="modal-backdrop">
     <div class="modal">
@@ -646,12 +762,14 @@
       const el = {
         gpsPill: $("gpsPill"), gpsDot: $("gpsDot"), gpsSummary: $("gpsSummary"),
         wakeBtn: $("wakeBtn"), soundBtn: $("soundBtn"), themeBtn: $("themeBtn"),
-        searchInput: $("searchInput"), searchBtn: $("searchBtn"), clearBtn: $("clearBtn"),
+        searchInput: $("searchInput"), searchBtn: $("searchBtn"), wpBtn: $("wpBtn"), clearBtn: $("clearBtn"),
+        routeProfileRow: $("routeProfileRow"),
         results: $("results"), maneuverIcon: $("maneuverIcon"), turnDist: $("turnDist"),
         turnDesc: $("turnDesc"), turnStreet: $("turnStreet"),
         mgrsLive: $("mgrsLive"), roadsStatus: $("roadsStatus"),
         radarCanvas: $("radarCanvas"), headingBadge: $("headingBadge"), scaleBadge: $("scaleBadge"),
-        poiToast: $("poiToast"), gpsCta: $("gpsCta"), gpsCtaText: $("gpsCtaText"),
+        poiToast: $("poiToast"), wpPickBanner: $("wpPickBanner"), wpPickCancelBtn: $("wpPickCancelBtn"),
+        gpsCta: $("gpsCta"), gpsCtaText: $("gpsCtaText"),
         startGpsDirectBtn: $("startGpsDirectBtn"), startNetGpsBtn: $("startNetGpsBtn"),
         hideCtaBtn: $("hideCtaBtn"), poiMenuBtn: $("poiMenuBtn"), autoZoomBtn: $("autoZoomBtn"),
         orientBtn: $("orientBtn"), view3dBtn: $("view3dBtn"), baseMapBtn: $("baseMapBtn"), mapCredit: $("mapCredit"),
@@ -662,6 +780,9 @@
         poiModal: $("poiModal"), poiModalSub: $("poiModalSub"), poiCatGrid: $("poiCatGrid"),
         poiRadiusRow: $("poiRadiusRow"), poiList: $("poiList"),
         poiShowMapBtn: $("poiShowMapBtn"), poiRefreshBtn: $("poiRefreshBtn"), poiClearBtn: $("poiClearBtn"),
+        wpModal: $("wpModal"), wpSearchInput: $("wpSearchInput"), wpSearchBtn: $("wpSearchBtn"),
+        wpSearchResults: $("wpSearchResults"), wpList: $("wpList"),
+        wpPickMapBtn: $("wpPickMapBtn"), wpClearAllBtn: $("wpClearAllBtn"), wpCloseBtn: $("wpCloseBtn"),
         diagModal: $("diagModal"), dMgrsPos: $("dMgrsPos"), dMgrsDest: $("dMgrsDest"),
         dAcc: $("dAcc"), dSpdHdg: $("dSpdHdg"), dEnv: $("dEnv"), dPerm: $("dPerm"),
         diagLog: $("diagLog"), retryGpsBtn: $("retryGpsBtn"), retryNetBtn: $("retryNetBtn"),
@@ -810,10 +931,19 @@
       let overpassChain = Promise.resolve();
       let lastOverpassEndMs = 0;
 
+      const VALHALLA_ENDPOINT = "https://valhalla1.openstreetmap.de/route";
+      const AUTO_REROUTE_COOLDOWN_MS = 6500;
+      const ROUTE_PROFILES = {
+        direct: { id: "direct", label: "OTSE", desc: "kiireim otsetee" },
+        curvy:  { id: "curvy",  label: "KURVILINE", desc: "kurviline mootorrattatee" },
+        gravel: { id: "gravel", label: "PINNAS", desc: "kruusa- ja pinnasteed" }
+      };
+
       const state = {
         mode: "route",
         orientMode: "heading",
         baseMapMode: "graphic",
+        routeProfile: "direct",
         view3d: false,
         pitchFactor: 0,
         autoZoom: true,
@@ -871,7 +1001,13 @@
         },
 
         destination: null,
+        waypoints: [],
+        pickingWaypoint: false,
         route: null,
+        routeReqSeq: 0,
+        routingInFlight: false,
+        lastAutoRerouteMs: 0,
+        lastAutoReroutePos: null,
         activeStepIdx: 1,
         riderGeomIdx: 0,
         riderProj: null,
@@ -3543,38 +3679,291 @@
         }, 220);
       }
 
-      /* ===================== OSRM MARSRUUT ===================== */
+      /* ===================== MARSRUUDI PROFIILID, VAHEPEATUSED JA NUTIKAS MARSRUUTIMINE ===================== */
 
-      async function calculateRoute() {
-        if (!hasValidGps() || !state.destination) return;
-        const start = { lat: state.gps.lat, lon: state.gps.lon };
-        const end = { lat: state.destination.lat, lon: state.destination.lon };
-        el.turnDist.textContent = "...";
-        el.turnDesc.textContent = "Arvutan teekonda";
-        el.turnStreet.textContent = state.destination.name;
-        el.offrouteBanner.classList.remove("show");
-        addLog(`OSRM: ${latLonToMGRS(start.lat, start.lon)} -> ${latLonToMGRS(end.lat, end.lon)}`);
+      function applyRouteProfile(profileId, saveToStorage, recalcNow) {
+        const validId = ROUTE_PROFILES[profileId] ? profileId : "direct";
+        state.routeProfile = validId;
+        if (el.routeProfileRow) {
+          el.routeProfileRow.querySelectorAll(".profile-btn").forEach((b) => {
+            b.classList.toggle("active", b.getAttribute("data-profile") === validId);
+          });
+        }
+        if (saveToStorage) {
+          try { localStorage.setItem("motonav_route_profile", validId); } catch (_) {}
+        }
+        if (recalcNow && state.destination && hasValidGps()) {
+          calculateRoute({ isAutoReroute: false, preferHeading: false });
+        }
+      }
 
+      function getActiveWaypoints() {
+        return state.waypoints.filter((w) => !w.passed);
+      }
+
+      function updateWaypointBadge() {
+        if (!el.wpBtn) return;
+        const activeCount = getActiveWaypoints().length;
+        if (activeCount > 0) {
+          el.wpBtn.textContent = `PEATUS (${activeCount})`;
+          el.wpBtn.classList.add("has-wp");
+        } else {
+          el.wpBtn.textContent = "+ PEATUS";
+          el.wpBtn.classList.remove("has-wp");
+        }
+      }
+
+      function setWaypointPickMode(active) {
+        state.pickingWaypoint = Boolean(active);
+        if (el.wpPickBanner) el.wpPickBanner.classList.toggle("show", state.pickingWaypoint);
+        if (state.pickingWaypoint) {
+          if (el.wpModal) el.wpModal.classList.remove("open");
+          showToast("Puuduta kaardil vahepeatuse asukohta", 2400);
+        }
+      }
+
+      function renderWaypointModal() {
+        if (!el.wpList) return;
+        if (!state.waypoints.length) {
+          el.wpList.innerHTML = `<div class="poi-list-empty">Vahepeatusi pole lisatud.${state.destination ? " Sihtkoht: " + escapeHtml(state.destination.name) : ""}</div>`;
+          return;
+        }
+        el.wpList.innerHTML = "";
+        state.waypoints.forEach((wp, idx) => {
+          const row = document.createElement("div");
+          row.className = "wp-item" + (wp.passed ? " passed" : "");
+          row.innerHTML =
+            `<span class="wp-num">${idx + 1}</span>` +
+            `<span class="wp-item-name" title="${escapeHtml(wp.name)}">${escapeHtml(wp.name)}</span>` +
+            `<div class="wp-item-btns">` +
+            `<button type="button" class="wp-mini-btn" data-act="up" title="Üles">↑</button>` +
+            `<button type="button" class="wp-mini-btn" data-act="down" title="Alla">↓</button>` +
+            `<button type="button" class="wp-mini-btn" data-act="del" title="Eemalda">✕</button>` +
+            `</div>`;
+          row.querySelector('[data-act="up"]').addEventListener("click", () => {
+            if (idx === 0) return;
+            const tmp = state.waypoints[idx - 1];
+            state.waypoints[idx - 1] = state.waypoints[idx];
+            state.waypoints[idx] = tmp;
+            renderWaypointModal();
+            updateWaypointBadge();
+            if (state.destination && hasValidGps()) calculateRoute();
+            state.needsRedraw = true;
+          });
+          row.querySelector('[data-act="down"]').addEventListener("click", () => {
+            if (idx >= state.waypoints.length - 1) return;
+            const tmp = state.waypoints[idx + 1];
+            state.waypoints[idx + 1] = state.waypoints[idx];
+            state.waypoints[idx] = tmp;
+            renderWaypointModal();
+            updateWaypointBadge();
+            if (state.destination && hasValidGps()) calculateRoute();
+            state.needsRedraw = true;
+          });
+          row.querySelector('[data-act="del"]').addEventListener("click", () => {
+            state.waypoints.splice(idx, 1);
+            renderWaypointModal();
+            updateWaypointBadge();
+            if (state.destination && hasValidGps()) calculateRoute();
+            state.needsRedraw = true;
+          });
+          el.wpList.appendChild(row);
+        });
+        if (state.destination) {
+          const destRow = document.createElement("div");
+          destRow.className = "wp-item";
+          destRow.innerHTML =
+            `<span class="wp-num" style="background:var(--ok);">◎</span>` +
+            `<span class="wp-item-name">Lõpp: ${escapeHtml(state.destination.name)}</span>`;
+          el.wpList.appendChild(destRow);
+        }
+      }
+
+      async function reverseGeocodeLabel(lat, lon) {
         try {
-          const url = `https://router.project-osrm.org/route/v1/driving/${start.lon},${start.lat};${end.lon},${end.lat}?overview=full&geometries=geojson&steps=true`;
-          const res = await fetchWithTimeout(url, {}, 9000);
-          if (!res.ok) throw new Error(`OSRM HTTP ${res.status}`);
+          const url = `https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&accept-language=et&lat=${lat.toFixed(6)}&lon=${lon.toFixed(6)}`;
+          const res = await fetchWithTimeout(url, { method: "GET" }, 3500);
+          if (!res.ok) return null;
           const data = await res.json();
-          if (data.code !== "Ok" || !data.routes || !data.routes.length) throw new Error("Teekonda ei leitud.");
+          if (!data) return null;
+          const fmt = formatNominatimAddress(data, "");
+          return fmt.fullAddress || fmt.title || null;
+        } catch (_) {
+          return null;
+        }
+      }
 
-          const r = data.routes[0];
-          const coords = r.geometry.coordinates.map((p) => toValidCoord(p[1], p[0])).filter(Boolean);
-          if (coords.length < 2) throw new Error("Tühi teekond.");
+      function addWaypoint(wp) {
+        const c = toValidCoord(wp.lat, wp.lon);
+        if (!c) return;
+        const item = {
+          id: `wp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          lat: c.lat,
+          lon: c.lon,
+          name: wp.name || `Vahepeatus ${state.waypoints.length + 1}`,
+          passed: false
+        };
+        state.waypoints.push(item);
+        updateWaypointBadge();
+        renderWaypointModal();
+        addLog(`Vahepeatus lisatud: ${item.name}`);
+        showToast(`Vahepeatus ${state.waypoints.length}: ${item.name}`, 2400);
+        if (state.destination && hasValidGps()) {
+          calculateRoute({ isAutoReroute: false, preferHeading: false });
+        } else if (!state.destination) {
+          showToast("Vali nüüd ka lõpp-sihtkoht!", 2600);
+        }
+        state.needsRedraw = true;
+        return item;
+      }
 
-          const cumDist = new Float64Array(coords.length);
-          for (let i = 1; i < coords.length; i++) {
-            cumDist[i] = cumDist[i - 1] + distanceMeters(coords[i - 1], coords[i]);
+      function decodePolyline6(str) {
+        const coords = [];
+        let index = 0, lat = 0, lon = 0;
+        const len = str ? str.length : 0;
+        while (index < len) {
+          let b, shift = 0, result = 0;
+          do {
+            b = str.charCodeAt(index++) - 63;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+          } while (b >= 0x20 && index < len);
+          lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+          shift = 0; result = 0;
+          do {
+            b = str.charCodeAt(index++) - 63;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+          } while (b >= 0x20 && index < len);
+          lon += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+          coords.push({ lat: lat / 1e6, lon: lon / 1e6 });
+        }
+        return coords;
+      }
+
+      function scoreRouteCurviness(coords, totalDistM) {
+        if (!coords || coords.length < 4 || !totalDistM || totalDistM < 200) return 0;
+        const sampled = [coords[0]];
+        let acc = 0;
+        for (let i = 1; i < coords.length; i++) {
+          acc += distanceMeters(coords[i - 1], coords[i]);
+          if (acc >= 55 || i === coords.length - 1) {
+            sampled.push(coords[i]);
+            acc = 0;
+          }
+        }
+        if (sampled.length < 3) return 0;
+        let curveDeg = 0;
+        let prevBrg = bearingDegrees(sampled[0], sampled[1]);
+        for (let i = 2; i < sampled.length; i++) {
+          const brg = bearingDegrees(sampled[i - 1], sampled[i]);
+          const diff = Math.abs(shortestAngleDelta(prevBrg, brg));
+          if (diff >= 6) {
+            // Hinda sujuvaid maanteekurve (7–70°) kõrgemalt kui järske 90° linnaristmikke
+            curveDeg += diff <= 72 ? diff : 40;
+          }
+          prevBrg = brg;
+        }
+        return curveDeg / Math.max(0.5, totalDistM / 1000);
+      }
+
+      function mapValhallaManeuver(m) {
+        const t = Number(m && m.type) || 0;
+        const streetName = Array.isArray(m && m.street_names) && m.street_names.length
+          ? m.street_names[0]
+          : (Array.isArray(m && m.begin_street_names) && m.begin_street_names.length ? m.begin_street_names[0] : "");
+        const exit = m && m.roundabout_exit_count ? m.roundabout_exit_count : null;
+        if (t === 4 || t === 5 || t === 6) return { type: "arrive", modifier: "", exit: null, name: streetName };
+        if (t === 26 || t === 27) return { type: "roundabout", modifier: "", exit, name: streetName };
+        if (t === 12 || t === 13) return { type: "turn", modifier: "uturn", exit: null, name: streetName };
+        if (t === 9 || t === 18 || t === 20 || t === 23) return { type: "turn", modifier: "slight right", exit: null, name: streetName };
+        if (t === 10) return { type: "turn", modifier: "right", exit: null, name: streetName };
+        if (t === 11) return { type: "turn", modifier: "sharp right", exit: null, name: streetName };
+        if (t === 14) return { type: "turn", modifier: "sharp left", exit: null, name: streetName };
+        if (t === 15) return { type: "turn", modifier: "left", exit: null, name: streetName };
+        if (t === 16 || t === 19 || t === 21 || t === 24) return { type: "turn", modifier: "slight left", exit: null, name: streetName };
+        return { type: "continue", modifier: "straight", exit: null, name: streetName };
+      }
+
+      function buildRouteFromValhallaTrip(trip) {
+        if (!trip || !Array.isArray(trip.legs) || !trip.legs.length) return null;
+        const coords = [];
+        const steps = [];
+        let roughM = 0;
+
+        for (let li = 0; li < trip.legs.length; li++) {
+          const leg = trip.legs[li];
+          const legCoords = decodePolyline6(leg.shape || "");
+          if (legCoords.length < 2) continue;
+
+          const startOffset = coords.length > 0 ? coords.length - 1 : 0;
+          for (let ci = coords.length > 0 ? 1 : 0; ci < legCoords.length; ci++) {
+            coords.push(legCoords[ci]);
           }
 
-          let idxCursor = 0;
-          const steps = (r.legs[0].steps || []).map((s) => {
-            const loc = toValidCoord(s.maneuver.location[1], s.maneuver.location[0]);
-            if (!loc) return null;
+          const mans = Array.isArray(leg.maneuvers) ? leg.maneuvers : [];
+          for (let mi = 0; mi < mans.length; mi++) {
+            const m = mans[mi];
+            const lenM = (Number(m.length) || 0) * 1000;
+            if (m.rough) roughM += lenM;
+            const mapped = mapValhallaManeuver(m);
+            if (li < trip.legs.length - 1 && mapped.type === "arrive") continue;
+            if (li > 0 && mi === 0 && (m.type === 1 || m.type === 2 || m.type === 3)) continue;
+            const rawIdx = startOffset + (Number(m.begin_shape_index) || 0);
+            const gIdx = Math.max(0, Math.min(coords.length - 1, rawIdx));
+            const pt = coords[gIdx];
+            steps.push({
+              lat: pt.lat, lon: pt.lon, geomIdx: gIdx,
+              type: mapped.type, modifier: mapped.modifier, exit: mapped.exit, name: mapped.name
+            });
+          }
+        }
+
+        if (coords.length < 2) return null;
+        const cumDist = new Float64Array(coords.length);
+        for (let i = 1; i < coords.length; i++) {
+          cumDist[i] = cumDist[i - 1] + distanceMeters(coords[i - 1], coords[i]);
+        }
+        const totalDistance = (trip.summary && Number(trip.summary.length) > 0)
+          ? Number(trip.summary.length) * 1000
+          : (cumDist[coords.length - 1] || 0);
+        const totalDuration = (trip.summary && Number(trip.summary.time) > 0)
+          ? Number(trip.summary.time) : 0;
+        const curviness = scoreRouteCurviness(coords, totalDistance);
+
+        return {
+          coords, steps, cumDist, totalDistance, totalDuration,
+          roughM,
+          roughPct: totalDistance > 0 ? Math.min(100, Math.round((roughM / totalDistance) * 100)) : 0,
+          curviness,
+          engine: "Valhalla"
+        };
+      }
+
+      function buildRouteFromOsrmRoute(r) {
+        if (!r || !r.geometry || !Array.isArray(r.geometry.coordinates)) return null;
+        const coords = r.geometry.coordinates.map((p) => toValidCoord(p[1], p[0])).filter(Boolean);
+        if (coords.length < 2) return null;
+
+        const cumDist = new Float64Array(coords.length);
+        for (let i = 1; i < coords.length; i++) {
+          cumDist[i] = cumDist[i - 1] + distanceMeters(coords[i - 1], coords[i]);
+        }
+
+        let idxCursor = 0;
+        const steps = [];
+        const legs = Array.isArray(r.legs) ? r.legs : [];
+        for (let li = 0; li < legs.length; li++) {
+          const legSteps = Array.isArray(legs[li].steps) ? legs[li].steps : [];
+          for (let si = 0; si < legSteps.length; si++) {
+            const s = legSteps[si];
+            if (li < legs.length - 1 && s.maneuver && s.maneuver.type === "arrive") continue;
+            if (li > 0 && si === 0 && s.maneuver && s.maneuver.type === "depart") continue;
+            const loc = s.maneuver && s.maneuver.location
+              ? toValidCoord(s.maneuver.location[1], s.maneuver.location[0]) : null;
+            if (!loc) continue;
             let bestIdx = idxCursor, bestD = Infinity;
             for (let i = idxCursor; i < coords.length; i++) {
               const d = distanceMeters(loc, coords[i]);
@@ -3582,22 +3971,216 @@
               if (bestD < 15 && d > bestD + 50) break;
             }
             idxCursor = bestIdx;
-            return {
+            steps.push({
               lat: loc.lat, lon: loc.lon, geomIdx: bestIdx,
-              type: s.maneuver.type || "", modifier: s.maneuver.modifier || "",
-              exit: s.maneuver.exit || null, name: s.name || ""
-            };
-          }).filter(Boolean);
+              type: (s.maneuver && s.maneuver.type) || "",
+              modifier: (s.maneuver && s.maneuver.modifier) || "",
+              exit: (s.maneuver && s.maneuver.exit) || null,
+              name: s.name || ""
+            });
+          }
+        }
 
-          state.route = {
-            coords, steps, cumDist,
-            totalDistance: parseFloat(r.distance) || cumDist[coords.length - 1] || 0,
-            totalDuration: parseFloat(r.duration) || 0
+        const totalDistance = parseFloat(r.distance) || cumDist[coords.length - 1] || 0;
+        const totalDuration = parseFloat(r.duration) || 0;
+        const curviness = scoreRouteCurviness(coords, totalDistance);
+        return {
+          coords, steps, cumDist, totalDistance, totalDuration,
+          roughM: 0, roughPct: 0, curviness,
+          engine: "OSRM"
+        };
+      }
+
+      function pickBestCandidate(candidates, profile) {
+        const valid = candidates.filter(Boolean);
+        if (!valid.length) return null;
+        if (valid.length === 1 || profile === "direct") return valid[0];
+
+        const minDist = Math.min(...valid.map((c) => c.totalDistance || Infinity));
+        if (profile === "curvy") {
+          let best = valid[0], bestScore = -Infinity;
+          for (let i = 0; i < valid.length; i++) {
+            const c = valid[i];
+            const ratio = minDist > 0 ? c.totalDistance / minDist : 1;
+            if (ratio > 1.55) continue;
+            const detourPenalty = ratio > 1.25 ? (ratio - 1.25) * 45 : 0;
+            const score = (c.curviness || 0) - detourPenalty;
+            if (score > bestScore) { bestScore = score; best = c; }
+          }
+          return best;
+        }
+        if (profile === "gravel") {
+          let best = valid[0], bestScore = -Infinity;
+          for (let i = 0; i < valid.length; i++) {
+            const c = valid[i];
+            const ratio = minDist > 0 ? c.totalDistance / minDist : 1;
+            if (ratio > 1.75) continue;
+            const score = (c.roughM || 0) * 4 + (c.curviness || 0) * 15 - (ratio - 1) * 1200;
+            if (score > bestScore) { bestScore = score; best = c; }
+          }
+          return best;
+        }
+        return valid[0];
+      }
+
+      async function fetchRouteFromValhalla(points, profile, startHeading) {
+        const callOnce = async (useHeading) => {
+          const locations = points.map((pt, idx) => {
+            const loc = {
+              lat: Number(pt.lat.toFixed(6)),
+              lon: Number(pt.lon.toFixed(6)),
+              type: (idx === 0 || idx === points.length - 1) ? "break" : "through"
+            };
+            if (idx === 0 && useHeading && Number.isFinite(startHeading)) {
+              loc.heading = Math.round((startHeading + 360) % 360);
+              loc.heading_tolerance = 65;
+            }
+            return loc;
+          });
+
+          let motoOpts;
+          if (profile === "gravel") {
+            motoOpts = { use_highways: 0.0, use_tolls: 0.0, use_trails: 1.0, exclude_unpaved: false, top_speed: 75 };
+          } else if (profile === "curvy") {
+            motoOpts = { use_highways: 0.0, use_tolls: 0.0, use_trails: 0.15, exclude_unpaved: false, maneuver_penalty: 2 };
+          } else {
+            motoOpts = { use_highways: 1.0, use_tolls: 0.5, use_trails: 0.0, exclude_unpaved: true };
+          }
+
+          const payload = {
+            locations,
+            costing: "motorcycle",
+            costing_options: { motorcycle: motoOpts },
+            units: "kilometers",
+            alternates: profile === "direct" ? 0 : 2
           };
+
+          const res = await fetchWithTimeout(VALHALLA_ENDPOINT, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          }, 9500);
+          if (!res.ok) throw new Error(`Valhalla HTTP ${res.status}`);
+          const data = await res.json();
+          const trips = [];
+          if (data && data.trip) trips.push(data.trip);
+          if (data && Array.isArray(data.alternates)) {
+            data.alternates.forEach((a) => { if (a && a.trip) trips.push(a.trip); });
+          }
+          const built = trips.map(buildRouteFromValhallaTrip).filter(Boolean);
+          if (!built.length) throw new Error("Valhalla tühi marsruut");
+          return pickBestCandidate(built, profile);
+        };
+
+        try {
+          return await callOnce(Number.isFinite(startHeading));
+        } catch (err) {
+          if (Number.isFinite(startHeading)) {
+            return await callOnce(false);
+          }
+          throw err;
+        }
+      }
+
+      async function fetchRouteFromOsrm(points, profile, startHeading) {
+        const coordStr = points.map((p) => `${p.lon.toFixed(6)},${p.lat.toFixed(6)}`).join(";");
+        const callOnce = async (useHeading) => {
+          const alts = profile !== "direct" && points.length === 2 ? "&alternatives=true" : "";
+          let bearParam = "";
+          if (useHeading && Number.isFinite(startHeading)) {
+            const hdgInt = Math.round((startHeading + 360) % 360);
+            bearParam = `&bearings=${hdgInt},65` + ";".repeat(points.length - 1);
+          }
+          const url = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson&steps=true${alts}${bearParam}`;
+          const res = await fetchWithTimeout(url, {}, 9000);
+          if (!res.ok) throw new Error(`OSRM HTTP ${res.status}`);
+          const data = await res.json();
+          if (data.code !== "Ok" || !data.routes || !data.routes.length) {
+            throw new Error("Teekonda ei leitud.");
+          }
+          const built = data.routes.map(buildRouteFromOsrmRoute).filter(Boolean);
+          if (!built.length) throw new Error("Tühi teekond.");
+          return pickBestCandidate(built, profile);
+        };
+
+        try {
+          return await callOnce(Number.isFinite(startHeading));
+        } catch (err) {
+          if (Number.isFinite(startHeading)) {
+            return await callOnce(false);
+          }
+          throw err;
+        }
+      }
+
+      async function calculateRoute(opts) {
+        if (!hasValidGps() || !state.destination) return;
+        const isAutoReroute = Boolean(opts && opts.isAutoReroute);
+        const preferHeading = Boolean(opts && opts.preferHeading);
+        const profile = state.routeProfile || "direct";
+        const profMeta = ROUTE_PROFILES[profile] || ROUTE_PROFILES.direct;
+
+        const start = { lat: state.gps.lat, lon: state.gps.lon };
+        const activeWps = getActiveWaypoints();
+        const end = { lat: state.destination.lat, lon: state.destination.lon };
+        const points = [start, ...activeWps, end];
+
+        let startHeading = null;
+        const speedKmh = state.gps.smoothSpeedKmh || 0;
+        if (preferHeading || speedKmh >= 10) {
+          const mvHdg = getMovementHeadingDeg();
+          if (mvHdg !== null) startHeading = mvHdg;
+          else if (preferHeading) startHeading = getActiveHeading().deg;
+        }
+
+        const mySeq = ++state.routeReqSeq;
+        state.routingInFlight = true;
+
+        if (isAutoReroute) {
+          state.lastAutoRerouteMs = Date.now();
+          state.lastAutoReroutePos = { lat: start.lat, lon: start.lon };
+          el.turnDesc.textContent = "Arvutan uut teed...";
+          el.turnStreet.textContent = startHeading !== null
+            ? `Sõidusuunas ${Math.round(startHeading)}° (${profMeta.label})`
+            : `${profMeta.label}: ${state.destination.name}`;
+          showToast(`Arvutan uut marsruuti (${profMeta.label})...`, 2200);
+        } else {
+          el.turnDist.textContent = "...";
+          el.turnDesc.textContent = `Arvutan (${profMeta.label})`;
+          el.turnStreet.textContent = activeWps.length
+            ? `${activeWps.length} vahepeatust -> ${state.destination.name}`
+            : state.destination.name;
+          el.offrouteBanner.classList.remove("show");
+        }
+        addLog(`Marsruut (${profMeta.label}${activeWps.length ? ", +" + activeWps.length + " peatust" : ""}${startHeading !== null ? ", suund " + Math.round(startHeading) + "°" : ""})`);
+
+        try {
+          let built = null;
+          if (profile === "curvy" || profile === "gravel") {
+            try {
+              built = await fetchRouteFromValhalla(points, profile, startHeading);
+            } catch (vErr) {
+              addLog(`Valhalla varu -> OSRM (${vErr.message})`);
+              built = await fetchRouteFromOsrm(points, profile, startHeading);
+            }
+          } else {
+            try {
+              built = await fetchRouteFromOsrm(points, profile, startHeading);
+            } catch (oErr) {
+              addLog(`OSRM varu -> Valhalla (${oErr.message})`);
+              built = await fetchRouteFromValhalla(points, profile, startHeading);
+            }
+          }
+
+          if (mySeq !== state.routeReqSeq) return;
+          state.routingInFlight = false;
+          if (!built || built.coords.length < 2) throw new Error("Teekonda ei leitud.");
+
+          state.route = built;
           state.riderGeomIdx = 0;
           state.riderProj = null;
           state.liveRiderProj = null;
-          state.activeStepIdx = steps.length > 1 ? 1 : 0;
+          state.activeStepIdx = built.steps.length > 1 ? 1 : 0;
           state.offRoute = false;
           state.offRouteHits = 0;
           state.offRouteSinceMs = 0;
@@ -3605,15 +4188,29 @@
           state.gps.blendOffsetLat = 0;
           state.gps.blendOffsetLon = 0;
           state.gps.blendStartMs = 0;
-          addLog(`Marsruut OK: ${formatDistance(state.route.totalDistance)}`);
+
+          const extraInfo = profile === "gravel" && built.roughPct > 0
+            ? ` · ~${built.roughPct}% pinnas`
+            : (profile === "curvy" && built.curviness > 0 ? ` · kurvikus ${Math.round(built.curviness)}°/km` : "");
+          addLog(`Marsruut OK (${built.engine}/${profMeta.label}): ${formatDistance(built.totalDistance)}${extraInfo}`);
+          if (isAutoReroute || profile !== "direct" || activeWps.length > 0) {
+            showToast(`${profMeta.label}: ${formatDistance(built.totalDistance)}${extraInfo}`, 2600);
+          }
+
           updateNavigation();
           if (state.autoZoom && state.followGps) state.targetRadiusM = computeAutoZoomTarget();
           state.needsRedraw = true;
         } catch (e) {
-          addLog(`OSRM viga: ${e.message}`);
-          el.turnDist.textContent = "!";
-          el.turnDesc.textContent = "Teekonda ei saanud arvutada";
-          el.turnStreet.textContent = "Vajuta «TEEKOND» -> KOMPASS otsesuunaks";
+          if (mySeq !== state.routeReqSeq) return;
+          state.routingInFlight = false;
+          addLog(`Marsruudi viga: ${e.message}`);
+          if (!isAutoReroute || !state.route) {
+            el.turnDist.textContent = "!";
+            el.turnDesc.textContent = "Teekonda ei saanud arvutada";
+            el.turnStreet.textContent = "Proovi uuesti või kasuta KOMPASS vaadet";
+          } else {
+            el.offrouteBanner.classList.add("show");
+          }
           state.needsRedraw = true;
         }
       }
@@ -3651,10 +4248,10 @@
         state.distToNextTurnM = state.offRoute ? null : distToTurn;
 
         if (state.offRoute) {
-          el.turnDist.textContent = formatDistance(proj.distM);
+          el.turnDist.textContent = state.routingInFlight ? "..." : formatDistance(proj.distM);
           el.turnDist.className = "turn-dist offroute";
-          el.turnDesc.textContent = "Teekonnalt kõrval";
-          el.turnStreet.textContent = "Vajuta «UUS TEE»";
+          el.turnDesc.textContent = state.routingInFlight ? "Arvutan uut teed..." : "Teekonnalt kõrval";
+          el.turnStreet.textContent = state.routingInFlight ? "Uus marsruut sõidusuunas" : "Automaatne ümberarvutus";
           renderManeuverIcon("offroute");
         } else if (directToDest < 30 || (step.type === "arrive" && distToTurn < 35 && directToDest < 60)) {
           el.turnDist.textContent = "KOHAL";
@@ -3690,6 +4287,27 @@
         }
 
         const pos = { lat: state.gps.lat, lon: state.gps.lon };
+
+        // Märgi läbitud vahepeatused automaatselt läbituks (90 m raadiuses), et ümberarvutus ei suunaks tagasi
+        if (state.waypoints.length > 0) {
+          let changedWp = false;
+          for (let i = 0; i < state.waypoints.length; i++) {
+            const wp = state.waypoints[i];
+            if (wp.passed) continue;
+            if (distanceMeters(pos, wp) <= 90) {
+              wp.passed = true;
+              changedWp = true;
+              addLog(`Vahepeatus läbitud: ${wp.name}`);
+              showToast(`Vahepeatus läbitud: ${wp.name}`, 2200);
+            } else {
+              break;
+            }
+          }
+          if (changedWp) {
+            updateWaypointBadge();
+            if (el.wpModal && el.wpModal.classList.contains("open")) renderWaypointModal();
+          }
+        }
 
         if (state.mode === "compass" && !state.route) {
           state.distToNextTurnM = null;
@@ -3737,14 +4355,16 @@
         state.riderGeomIdx = proj.segIdx;
 
         const nowMs = Date.now();
+        let justWentOffRoute = false;
         if (proj.distM > offRouteEnterM) {
           if (!state.offRoute) {
             state.offRouteHits += 1;
             if (!state.offRouteSinceMs) state.offRouteSinceMs = nowMs;
-            const sustained = (nowMs - state.offRouteSinceMs) >= 2200;
-            const extreme = proj.distM > offRouteEnterM * 2.0;
+            const sustained = (nowMs - state.offRouteSinceMs) >= 1800;
+            const extreme = proj.distM > offRouteEnterM * 1.8;
             if ((state.offRouteHits >= 2 && sustained) || state.offRouteHits >= 3 || extreme) {
               state.offRoute = true;
+              justWentOffRoute = true;
             }
           }
         } else if (proj.distM <= offRouteExitM) {
@@ -3752,7 +4372,18 @@
           state.offRouteHits = 0;
           state.offRouteSinceMs = 0;
         }
-        el.offrouteBanner.classList.toggle("show", state.offRoute);
+        el.offrouteBanner.classList.toggle("show", state.offRoute && !state.routingInFlight);
+
+        // Automaatne käigult uue marsruudi arvutamine liikumissuunas, kui teelt kõrvale kaldutakse
+        if (state.offRoute && state.destination && !state.routingInFlight) {
+          const sinceLast = nowMs - (state.lastAutoRerouteMs || 0);
+          const movedSinceLast = state.lastAutoReroutePos
+            ? distanceMeters(state.lastAutoReroutePos, pos)
+            : Infinity;
+          if (justWentOffRoute || (sinceLast >= AUTO_REROUTE_COOLDOWN_MS && movedSinceLast >= 45)) {
+            calculateRoute({ isAutoReroute: true, preferHeading: true });
+          }
+        }
 
         updateRouteProgressUI(proj, pos, speedMps);
       }
@@ -4891,6 +5522,32 @@
           // D) 3D HORISONDI HÄGUSUS (KUI 3D REŽIIM ON AKTIIVNE)
           drawHorizonFog(ctx, cam, pal);
 
+          // E0) VAHEPEATUSTE MÄRGID (1, 2, 3...)
+          if (state.waypoints.length > 0) {
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            for (let wi = 0; wi < state.waypoints.length; wi++) {
+              const wp = state.waypoints[wi];
+              if (wp.passed) continue;
+              const rWp = toRotXY(wp);
+              if (cam.is3d && (rWp.ry > cam.maxRy || rWp.ry < cam.minRy)) continue;
+              const pp = cam.projectRot(rWp.rx, rWp.ry);
+              if (pp.sx < -20 || pp.sx > w + 20 || pp.sy < -20 || pp.sy > h + 20) continue;
+              const sc = cam.is3d ? Math.max(0.75, Math.min(1.2, pp.k)) : 1;
+              const rPin = 11 * sc;
+              ctx.fillStyle = pal.accent;
+              ctx.beginPath();
+              ctx.arc(pp.sx, pp.sy, rPin, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.strokeStyle = pal.bg;
+              ctx.lineWidth = 2.5;
+              ctx.stroke();
+              ctx.fillStyle = "#000000";
+              ctx.font = `900 ${Math.max(10, Math.round(12 * sc))}px sans-serif`;
+              ctx.fillText(String(wi + 1), pp.sx, pp.sy + 0.5);
+            }
+          }
+
           // E) TÄPNE SIHTPUNKTI SIHIK
           if (state.destination) {
             const rDest = toRotXY(state.destination);
@@ -4972,6 +5629,23 @@
       }
 
       function handleCanvasTap(clientX, clientY) {
+        if (state.pickingWaypoint) {
+          const pt = screenToLatLon(clientX, clientY);
+          if (!pt) return;
+          setWaypointPickMode(false);
+          playShortConfirmBeep();
+          const fallbackName = `Vahepeatus ${state.waypoints.length + 1}`;
+          const added = addWaypoint({ lat: pt.lat, lon: pt.lon, name: fallbackName });
+          if (added) {
+            reverseGeocodeLabel(pt.lat, pt.lon).then((addr) => {
+              if (addr && added.name === fallbackName) {
+                added.name = addr;
+                if (el.wpModal && el.wpModal.classList.contains("open")) renderWaypointModal();
+              }
+            }).catch(() => {});
+          }
+          return;
+        }
         if (state.mode !== "route" || !state.pois.rendered.length) return;
         const rect = el.radarCanvas.getBoundingClientRect();
         const x = clientX - rect.left;
@@ -5276,6 +5950,147 @@
           el.results.classList.remove("open");
         }
       });
+      el.routeProfileRow.querySelectorAll(".profile-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const prof = btn.getAttribute("data-profile");
+          const meta = ROUTE_PROFILES[prof] || ROUTE_PROFILES.direct;
+          applyRouteProfile(prof, true, true);
+          addLog(`Marsruudi valik: ${meta.label} (${meta.desc})`);
+          if (!state.destination) {
+            showToast(`Marsruut: ${meta.label} (${meta.desc})`, 2000);
+          }
+        });
+      });
+
+      let wpSuggestTimer = null;
+      let wpAbortCtrl = null;
+      let wpSearchSeq = 0;
+
+      async function searchWaypointAddress(isAutocomplete) {
+        const q = el.wpSearchInput.value.trim();
+        if (!q || (isAutocomplete && q.length < 3)) {
+          el.wpSearchResults.classList.remove("open");
+          return;
+        }
+        if (looksLikeMGRS(q)) {
+          const parsed = parseMGRS(q);
+          if (!parsed.error) {
+            el.wpSearchResults.innerHTML = "";
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "result-item";
+            btn.innerHTML = `<strong>${escapeHtml(parsed.mgrs)}</strong><small>MGRS vahepeatus</small>`;
+            btn.addEventListener("click", () => {
+              el.wpSearchInput.value = "";
+              el.wpSearchResults.classList.remove("open");
+              addWaypoint({ lat: parsed.lat, lon: parsed.lon, name: parsed.mgrs });
+            });
+            el.wpSearchResults.appendChild(btn);
+            el.wpSearchResults.classList.add("open");
+          }
+          return;
+        }
+        const cacheKey = q.toLowerCase();
+        const renderWpChoices = (items) => {
+          if (!items || !items.length) {
+            if (!isAutocomplete) {
+              el.wpSearchResults.innerHTML = `<div class="result-item">Aadressi ei leitud.</div>`;
+              el.wpSearchResults.classList.add("open");
+            } else {
+              el.wpSearchResults.classList.remove("open");
+            }
+            return;
+          }
+          el.wpSearchResults.innerHTML = "";
+          items.forEach((it) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "result-item";
+            btn.innerHTML = `<strong>${escapeHtml(it.title)}</strong><small>${escapeHtml(it.sub)}</small>`;
+            btn.addEventListener("click", () => {
+              el.wpSearchInput.value = "";
+              el.wpSearchResults.classList.remove("open");
+              addWaypoint({ lat: it.lat, lon: it.lon, name: it.fullAddress || it.title });
+            });
+            el.wpSearchResults.appendChild(btn);
+          });
+          el.wpSearchResults.classList.add("open");
+        };
+
+        const cached = searchSuggestCache.get(cacheKey);
+        if (cached && cached.length > 0) {
+          renderWpChoices(cached);
+          return;
+        }
+
+        if (wpAbortCtrl) { try { wpAbortCtrl.abort(); } catch (_) {} }
+        const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+        wpAbortCtrl = ctrl;
+        const mySeq = ++wpSearchSeq;
+        const signal = ctrl ? ctrl.signal : undefined;
+
+        if (!el.wpSearchResults.classList.contains("open")) {
+          el.wpSearchResults.innerHTML = `<div class="result-item">Otsin aadresse...</div>`;
+          el.wpSearchResults.classList.add("open");
+        }
+
+        const timeoutMs = isAutocomplete ? 3500 : 5500;
+        const [inAdsItems, photonItems] = await Promise.all([
+          fetchAddressesFromInAds(q, signal, Math.min(2800, timeoutMs)),
+          fetchAddressesFromPhoton(q, signal, timeoutMs)
+        ]);
+        if (mySeq !== wpSearchSeq) return;
+        let items = dedupeAddressItems([...inAdsItems, ...photonItems]);
+        if (items.length < 3) {
+          const nomItems = await fetchAddressesFromNominatim(q, signal, timeoutMs);
+          if (mySeq !== wpSearchSeq) return;
+          items = dedupeAddressItems([...items, ...nomItems]);
+        }
+        if (items.length > 0) searchSuggestCache.set(cacheKey, items);
+        renderWpChoices(items);
+      }
+
+      el.wpBtn.addEventListener("click", () => {
+        setWaypointPickMode(false);
+        el.wpSearchResults.classList.remove("open");
+        renderWaypointModal();
+        el.wpModal.classList.add("open");
+      });
+      el.wpSearchInput.addEventListener("input", () => {
+        if (wpSuggestTimer !== null) { clearTimeout(wpSuggestTimer); wpSuggestTimer = null; }
+        const q = el.wpSearchInput.value.trim();
+        if (q.length < 3) {
+          if (wpAbortCtrl) { try { wpAbortCtrl.abort(); } catch (_) {} wpAbortCtrl = null; }
+          wpSearchSeq += 1;
+          el.wpSearchResults.classList.remove("open");
+          return;
+        }
+        wpSuggestTimer = setTimeout(() => { wpSuggestTimer = null; searchWaypointAddress(true); }, 220);
+      });
+      el.wpSearchInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          if (wpSuggestTimer !== null) { clearTimeout(wpSuggestTimer); wpSuggestTimer = null; }
+          searchWaypointAddress(false);
+        } else if (e.key === "Escape") {
+          el.wpSearchResults.classList.remove("open");
+        }
+      });
+      el.wpSearchBtn.addEventListener("click", () => {
+        if (wpSuggestTimer !== null) { clearTimeout(wpSuggestTimer); wpSuggestTimer = null; }
+        searchWaypointAddress(false);
+      });
+      el.wpPickMapBtn.addEventListener("click", () => setWaypointPickMode(true));
+      el.wpPickCancelBtn.addEventListener("click", () => setWaypointPickMode(false));
+      el.wpClearAllBtn.addEventListener("click", () => {
+        state.waypoints = [];
+        updateWaypointBadge();
+        renderWaypointModal();
+        if (state.destination && hasValidGps()) calculateRoute();
+        state.needsRedraw = true;
+      });
+      el.wpCloseBtn.addEventListener("click", () => el.wpModal.classList.remove("open"));
+
       el.clearBtn.addEventListener("click", () => {
         if (searchSuggestTimer !== null) {
           clearTimeout(searchSuggestTimer);
@@ -5286,8 +6101,12 @@
           searchAbortCtrl = null;
         }
         searchSeq += 1;
+        state.routeReqSeq += 1;
+        state.routingInFlight = false;
+        setWaypointPickMode(false);
         el.results.classList.remove("open");
-        state.destination = null; state.route = null;
+        state.destination = null; state.waypoints = []; state.route = null;
+        updateWaypointBadge();
         state.riderProj = null; state.liveRiderProj = null;
         state.offRoute = false; state.offRouteHits = 0; state.offRouteSinceMs = 0;
         state.distToNextTurnM = null;
@@ -5300,7 +6119,7 @@
         updateNavigation();
         state.needsRedraw = true;
       });
-      el.recalcBtn.addEventListener("click", calculateRoute);
+      el.recalcBtn.addEventListener("click", () => calculateRoute({ isAutoReroute: false, preferHeading: true }));
       el.modeBtn.addEventListener("click", () => {
         state.mode = state.mode === "route" ? "compass" : "route";
         el.modeBtn.textContent = state.mode === "route" ? "TEEKOND" : "KOMPASS";
@@ -5379,13 +6198,18 @@
       addLog(`Käivitamine (${window.location.protocol}//${window.location.host || "kohalik"})`);
       let savedBaseMap = "graphic";
       let savedView3d = false;
+      let savedProfile = "direct";
       try {
         const stored = localStorage.getItem("motonav_basemap_v2");
         if (stored && BASE_MAPS[stored]) savedBaseMap = stored;
         savedView3d = localStorage.getItem("motonav_view3d") === "1";
+        const storedProf = localStorage.getItem("motonav_route_profile");
+        if (storedProf && ROUTE_PROFILES[storedProf]) savedProfile = storedProf;
       } catch (_) {}
       applyBaseMapMode(savedBaseMap, false);
       applyView3dMode(savedView3d, false, true);
+      applyRouteProfile(savedProfile, false, false);
+      updateWaypointBadge();
       initOpenFreeMapTileJson();
       renderManeuverIcon("straight");
       resizeCanvas();
