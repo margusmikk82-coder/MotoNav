@@ -853,7 +853,7 @@
           id: "maaamet",
           label: "ALUS: EESTI ETAK",
           shortStatus: "Kaart: Maa- ja Ruumiamet",
-          credit: "© Maa- ja Ruumiamet · OSM",
+          credit: "© Maa- ja Ruumiamet · Esri · OSM",
           isVectorGraphic: false,
           maxZoom: 18,
           invertNight: true,
@@ -863,13 +863,17 @@
               id: "maaamet_kaart",
               maxZoom: 18,
               url: (z, x, y) => {
-                if (z < 7 || !isTileInEstonia(z, x, y)) {
-                  return `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+                if (z < 9 || !isTileInEstonia(z, x, y)) {
+                  return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${z}/${y}/${x}`;
                 }
                 const tmsY = (Math.pow(2, z) - 1) - y;
                 return `https://tiles.maaamet.ee/tm/tms/1.0.0/kaart@GMC/${z}/${x}/${tmsY}.png`;
               },
-              fallbackUrl: (z, x, y) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`
+              fallbackUrls: [
+                (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${z}/${y}/${x}`,
+                (z, x, y) => `https://a.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}.png`,
+                (z, x, y) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`
+              ]
             }
           ]
         },
@@ -887,21 +891,24 @@
               id: "esri_imagery",
               maxZoom: 19,
               url: (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
-              fallbackUrl: null
+              fallbackUrls: [
+                (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${z}/${y}/${x}`,
+                (z, x, y) => `https://a.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}.png`
+              ]
             },
             {
               id: "esri_roads",
               maxZoom: 19,
               overlay: true,
               url: (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/${z}/${y}/${x}`,
-              fallbackUrl: null
+              fallbackUrls: []
             },
             {
               id: "esri_places",
               maxZoom: 19,
               overlay: true,
               url: (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/${z}/${y}/${x}`,
-              fallbackUrl: null
+              fallbackUrls: []
             }
           ]
         }
@@ -914,9 +921,11 @@
       ];
 
       const tileCache = new Map();
-      const MAX_TILES = 160;
+      const MAX_TILES = 300;
       const vectorTileCache = new Map();
-      const MAX_VECTOR_TILES = 120;
+      const MAX_VECTOR_TILES = 240;
+      let tileRetryRedrawTimer = null;
+      let lastOverviewPrefetchMs = 0;
       let openFreeMapTileTemplate = "https://tiles.openfreemap.org/planet/latest/{z}/{x}/{y}.pbf";
       const openFreeMapFallbackTemplate = "https://tiles.openfreemap.org/backup_planet/latest/{z}/{x}/{y}.pbf";
       const poiCache = new Map();
@@ -2730,12 +2739,66 @@
         return ab;
       }
 
+      function evictCacheEntry(cache, maxSize, keepLowZoomZ) {
+        if (cache.size < maxSize) return;
+        let victimKey = null;
+        for (const [k, v] of cache) {
+          if (!v || v.z === undefined || v.z > keepLowZoomZ) {
+            victimKey = k;
+            break;
+          }
+        }
+        if (victimKey === null) {
+          victimKey = cache.keys().next().value;
+        }
+        if (victimKey !== undefined && victimKey !== null) {
+          const victim = cache.get(victimKey);
+          if (victim && victim.loadTimer) clearTimeout(victim.loadTimer);
+          cache.delete(victimKey);
+        }
+      }
+
+      function scheduleTileRetryRedraw(delayMs) {
+        if (tileRetryRedrawTimer) return;
+        tileRetryRedrawTimer = setTimeout(() => {
+          tileRetryRedrawTimer = null;
+          state.needsRedraw = true;
+        }, Math.max(800, delayMs));
+      }
+
+      function resetFailedTiles(onlyVector) {
+        let resetAny = false;
+        for (const entry of vectorTileCache.values()) {
+          if (entry && entry.failed && !entry.loading) {
+            entry.failedAt = 0;
+            entry.retryCount = 0;
+            resetAny = true;
+          }
+        }
+        if (!onlyVector) {
+          for (const entry of tileCache.values()) {
+            if (entry && entry.failed && !entry.loading) {
+              entry.failedAt = 0;
+              entry.retryCount = 0;
+              resetAny = true;
+            }
+          }
+        }
+        if (resetAny) {
+          state.needsRedraw = true;
+        }
+      }
+
       function initOpenFreeMapTileJson() {
         fetchWithTimeout("https://tiles.openfreemap.org/planet", { method: "GET" }, 5000)
           .then((r) => (r.ok ? r.json() : null))
           .then((tj) => {
             if (tj && Array.isArray(tj.tiles) && tj.tiles[0]) {
+              const prev = openFreeMapTileTemplate;
               openFreeMapTileTemplate = tj.tiles[0];
+              if (openFreeMapTileTemplate !== prev) {
+                resetFailedTiles(true);
+              }
             }
           })
           .catch(() => {});
@@ -2749,31 +2812,14 @@
         return vectorTileCache.get(`${z}/${wrapX}/${ty}`) || null;
       }
 
-      function getVectorTile(z, tx, ty) {
-        if (z < 0 || z > 14) return null;
-        const maxT = Math.pow(2, z);
-        const wrapX = ((tx % maxT) + maxT) % maxT;
-        if (ty < 0 || ty >= maxT) return null;
-
-        const key = `${z}/${wrapX}/${ty}`;
-        const existing = vectorTileCache.get(key);
-        if (existing) {
-          vectorTileCache.delete(key);
-          vectorTileCache.set(key, existing);
-          return existing;
-        }
-
-        if (vectorTileCache.size >= MAX_VECTOR_TILES) {
-          const firstKey = vectorTileCache.keys().next().value;
-          vectorTileCache.delete(firstKey);
-        }
-
-        const entry = { ready: false, failed: false, data: null };
-        vectorTileCache.set(key, entry);
+      function startVectorTileFetch(entry) {
+        const { z, tx: wrapX, ty } = entry;
+        entry.loading = true;
+        entry.failed = false;
 
         const buildUrl = (tpl) => tpl.replace("{z}", z).replace("{x}", wrapX).replace("{y}", ty);
         const loadFrom = async (tpl) => {
-          const res = await fetchWithTimeout(buildUrl(tpl), { method: "GET" }, 7000);
+          const res = await fetchWithTimeout(buildUrl(tpl), { method: "GET" }, 8000);
           if (res.status === 204 || res.status === 404) {
             return { extent: 4096, water: [], waterwayMajor: [], waterwayMinor: [], roads: [[], [], [], [], []], streetLabels: [], placeLabels: [] };
           }
@@ -2788,12 +2834,70 @@
           .then((parsed) => {
             entry.data = parsed;
             entry.ready = true;
+            entry.loading = false;
+            entry.failed = false;
+            entry.retryCount = 0;
             state.needsRedraw = true;
+            // Laadi vaikselt taustal üks üldisem ülevaateplaat, et välja suumimine oleks kohene
+            const now = Date.now();
+            if (z >= 11 && now - lastOverviewPrefetchMs >= 1800) {
+              const ovZ = Math.max(5, z - 2);
+              const ovScale = Math.pow(2, z - ovZ);
+              const ovX = Math.floor(wrapX / ovScale);
+              const ovY = Math.floor(ty / ovScale);
+              if (!peekVectorTile(ovZ, ovX, ovY)) {
+                lastOverviewPrefetchMs = now;
+                getVectorTile(ovZ, ovX, ovY);
+              }
+            }
           })
           .catch(() => {
+            entry.loading = false;
             entry.failed = true;
+            entry.failedAt = Date.now();
+            if (entry.retryCount < 5) {
+              const nextDelay = Math.min(20000, 3500 * Math.pow(2, entry.retryCount));
+              scheduleTileRetryRedraw(nextDelay + 150);
+            }
           });
+      }
 
+      function getVectorTile(z, tx, ty) {
+        if (z < 0 || z > 14) return null;
+        const maxT = Math.pow(2, z);
+        const wrapX = ((tx % maxT) + maxT) % maxT;
+        if (ty < 0 || ty >= maxT) return null;
+
+        const key = `${z}/${wrapX}/${ty}`;
+        const existing = vectorTileCache.get(key);
+        if (existing) {
+          vectorTileCache.delete(key);
+          vectorTileCache.set(key, existing);
+          if (existing.failed && !existing.loading && existing.retryCount < 5) {
+            const retryDelay = Math.min(20000, 3500 * Math.pow(2, existing.retryCount));
+            if (Date.now() - existing.failedAt >= retryDelay) {
+              existing.retryCount++;
+              startVectorTileFetch(existing);
+            }
+          }
+          return existing;
+        }
+
+        evictCacheEntry(vectorTileCache, MAX_VECTOR_TILES, 10);
+
+        const entry = {
+          z,
+          tx: wrapX,
+          ty,
+          ready: false,
+          failed: false,
+          loading: false,
+          failedAt: 0,
+          retryCount: 0,
+          data: null
+        };
+        vectorTileCache.set(key, entry);
+        startVectorTileFetch(entry);
         return entry;
       }
 
@@ -2838,6 +2942,103 @@
         return tileCache.get(key) || null;
       }
 
+      function buildRasterTileUrls(layerCfg, z, wrapX, ty) {
+        const urls = [];
+        const add = (u) => {
+          if (u && urls.indexOf(u) === -1) urls.push(u);
+        };
+        if (typeof layerCfg.url === "function") add(layerCfg.url(z, wrapX, ty));
+        if (Array.isArray(layerCfg.fallbackUrls)) {
+          for (let i = 0; i < layerCfg.fallbackUrls.length; i++) {
+            const fn = layerCfg.fallbackUrls[i];
+            if (typeof fn === "function") add(fn(z, wrapX, ty));
+          }
+        } else if (typeof layerCfg.fallbackUrl === "function") {
+          add(layerCfg.fallbackUrl(z, wrapX, ty));
+        }
+        return urls;
+      }
+
+      function startRasterTileLoad(entry, layerCfg) {
+        if (!entry.urls.length) {
+          entry.loading = false;
+          entry.failed = true;
+          entry.failedAt = Date.now();
+          return;
+        }
+        entry.loading = true;
+        entry.failed = false;
+        entry.urlIdx = 0;
+
+        const clearTimer = () => {
+          if (entry.loadTimer) {
+            clearTimeout(entry.loadTimer);
+            entry.loadTimer = null;
+          }
+        };
+
+        const tryNextUrl = () => {
+          clearTimer();
+          if (entry.urlIdx >= entry.urls.length) {
+            entry.loading = false;
+            entry.failed = true;
+            entry.failedAt = Date.now();
+            if (entry.retryCount < 5) {
+              const nextDelay = Math.min(20000, 3500 * Math.pow(2, entry.retryCount));
+              scheduleTileRetryRedraw(nextDelay + 150);
+            }
+            return;
+          }
+          const attemptIdx = entry.urlIdx;
+          const nextUrl = entry.urls[attemptIdx];
+          const img = new Image();
+          entry.img = img;
+          let settled = false;
+
+          const onFail = () => {
+            if (settled) return;
+            settled = true;
+            clearTimer();
+            if (entry.img !== img) return;
+            entry.urlIdx = attemptIdx + 1;
+            tryNextUrl();
+          };
+
+          img.onload = () => {
+            if (settled) return;
+            if (!img.naturalWidth || !img.naturalHeight) {
+              onFail();
+              return;
+            }
+            settled = true;
+            clearTimer();
+            if (entry.img !== img) return;
+            entry.ready = true;
+            entry.loading = false;
+            entry.failed = false;
+            entry.retryCount = 0;
+            state.needsRedraw = true;
+            // Laadi vaikselt taustal üks ülevaateplaat, et välja suumimisel kaart ei kaoks
+            const now = Date.now();
+            if (!layerCfg.overlay && entry.z >= 11 && now - lastOverviewPrefetchMs >= 1800) {
+              const ovZ = Math.max(5, entry.z - 2);
+              const ovScale = Math.pow(2, entry.z - ovZ);
+              const ovX = Math.floor(entry.tx / ovScale);
+              const ovY = Math.floor(entry.ty / ovScale);
+              if (!peekCachedTile(layerCfg, ovZ, ovX, ovY)) {
+                lastOverviewPrefetchMs = now;
+                getTileImage(layerCfg, ovZ, ovX, ovY);
+              }
+            }
+          };
+          img.onerror = onFail;
+          entry.loadTimer = setTimeout(onFail, 9000);
+          img.src = nextUrl;
+        };
+
+        tryNextUrl();
+      }
+
       function getTileImage(layerCfg, z, tx, ty) {
         if (z < 0 || z > (layerCfg.maxZoom || 19)) return null;
         const maxT = Math.pow(2, z);
@@ -2849,35 +3050,38 @@
         if (existing) {
           tileCache.delete(key);
           tileCache.set(key, existing);
+          if (existing.failed && !existing.loading && existing.retryCount < 5) {
+            const retryDelay = Math.min(20000, 3500 * Math.pow(2, existing.retryCount));
+            if (Date.now() - existing.failedAt >= retryDelay) {
+              existing.retryCount++;
+              startRasterTileLoad(existing, layerCfg);
+            }
+          }
           return existing;
         }
 
-        if (tileCache.size >= MAX_TILES) {
-          const firstKey = tileCache.keys().next().value;
-          tileCache.delete(firstKey);
-        }
+        evictCacheEntry(tileCache, MAX_TILES, 10);
 
-        const primaryUrl = layerCfg.url(z, wrapX, ty);
-        if (!primaryUrl) return null;
+        const urls = buildRasterTileUrls(layerCfg, z, wrapX, ty);
+        if (!urls.length) return null;
 
-        const entry = { img: new Image(), ready: false, failed: false, triedFallback: false };
-        entry.img.onload = () => {
-          entry.ready = true;
-          state.needsRedraw = true;
+        const entry = {
+          layerId: layerCfg.id,
+          z,
+          tx: wrapX,
+          ty,
+          img: null,
+          ready: false,
+          failed: false,
+          loading: false,
+          urlIdx: 0,
+          urls,
+          failedAt: 0,
+          retryCount: 0,
+          loadTimer: null
         };
-        entry.img.onerror = () => {
-          if (!entry.triedFallback && typeof layerCfg.fallbackUrl === "function") {
-            const fbUrl = layerCfg.fallbackUrl(z, wrapX, ty);
-            if (fbUrl && fbUrl !== primaryUrl) {
-              entry.triedFallback = true;
-              entry.img.src = fbUrl;
-              return;
-            }
-          }
-          entry.failed = true;
-        };
-        entry.img.src = primaryUrl;
         tileCache.set(key, entry);
+        startRasterTileLoad(entry, layerCfg);
         return entry;
       }
 
@@ -4434,13 +4638,22 @@
         const rect = el.radarCanvas.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) return;
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const targetW = Math.round(rect.width * dpr);
+        const targetH = Math.round(rect.height * dpr);
+        const dimsChanged =
+          el.radarCanvas.width !== targetW ||
+          el.radarCanvas.height !== targetH ||
+          Math.abs(state.canvasW - rect.width) > 0.5 ||
+          Math.abs(state.canvasH - rect.height) > 0.5;
+        if (!dimsChanged) return;
         state.canvasW = rect.width;
         state.canvasH = rect.height;
-        el.radarCanvas.width = Math.round(rect.width * dpr);
-        el.radarCanvas.height = Math.round(rect.height * dpr);
+        el.radarCanvas.width = targetW;
+        el.radarCanvas.height = targetH;
         const ctx = el.radarCanvas.getContext("2d");
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         state.needsRedraw = true;
+        drawRadar();
       }
 
       function clipPolygonRingToNear(pts, tx0, ty0, a00, a01, a10, a11, maxRy) {
@@ -4913,7 +5126,7 @@
           const bm = getActiveBaseMap();
           const dprBoost = bm.isVectorGraphic ? 0 : Math.min(0.65, Math.log2(Math.max(1, window.devicePixelRatio || 1)) * 0.5);
           const exactZ = Math.log2(156543.03392 * cosLat * pxPerM) + dprBoost + (bm.isVectorGraphic ? 0 : 0.25);
-          if (state.currentTileZ === null || Math.abs(exactZ - state.currentTileZ) > 0.42 || state.currentTileZ > bm.maxZoom) {
+          if (state.currentTileZ === null || Math.abs(exactZ - state.currentTileZ) > 0.65 || state.currentTileZ > bm.maxZoom) {
             state.currentTileZ = Math.max(4, Math.min(bm.maxZoom, Math.round(exactZ)));
           }
           const z = state.currentTileZ;
@@ -4938,10 +5151,72 @@
           // A0) KIIRE GRAAFILINE VEKTORKAART (AINULT TEEKONNA VAATES — KOMPASSIVAATES PUHAS TAUST)
           if (!isMinimalCompass && bm.isVectorGraphic) {
             const drawTiles = [];
+            const seenFallbackKeys = new Set();
+            const centerCacheByZ = {};
+            const getCenterForZ = (tz) => {
+              if (!centerCacheByZ[tz]) centerCacheByZ[tz] = latLonToTileXY(center.lat, center.lon, tz);
+              return centerCacheByZ[tz];
+            };
+            const pushVectorFallback = (tx, ty, drawX, drawY, is3dView) => {
+              // 1) Suurendamisel otsi vanemplaate (kuni 6 taset üles)
+              for (let dz = 1; dz <= 6; dz++) {
+                const pz = z - dz;
+                if (pz < 4) break;
+                const scale = Math.pow(2, dz);
+                const ptx = Math.floor(tx / scale);
+                const pty = Math.floor(ty / scale);
+                const pKey = `${pz}/${ptx}/${pty}`;
+                if (is3dView && seenFallbackKeys.has(pKey)) return true;
+                const parent = peekVectorTile(pz, ptx, pty);
+                if (parent && parent.ready && parent.data) {
+                  if (is3dView) seenFallbackKeys.add(pKey);
+                  const pSize = tileSizePx * scale;
+                  const pCenter = getCenterForZ(pz);
+                  const pDrawX = (ptx - pCenter.x) * pSize;
+                  const pDrawY = (pty - pCenter.y) * pSize;
+                  drawTiles.push({
+                    data: parent.data,
+                    drawX: pDrawX, drawY: pDrawY, size: pSize,
+                    clipX: is3dView ? pDrawX : drawX,
+                    clipY: is3dView ? pDrawY : drawY,
+                    clipSize: is3dView ? pSize : tileSizePx
+                  });
+                  return true;
+                }
+              }
+              // 2) Välja suumimisel kasuta puhvris olevaid detailsemaid lapsplaate (z+1..z+2)
+              for (let dz = 1; dz <= 2; dz++) {
+                const cz = z + dz;
+                if (cz > 14) break;
+                const scale = Math.pow(2, dz);
+                const cSize = tileSizePx / scale;
+                let foundChild = false;
+                for (let sx = 0; sx < scale; sx++) {
+                  for (let sy = 0; sy < scale; sy++) {
+                    const ctxTx = tx * scale + sx;
+                    const ctxTy = ty * scale + sy;
+                    const child = peekVectorTile(cz, ctxTx, ctxTy);
+                    if (child && child.ready && child.data) {
+                      const cDrawX = drawX + sx * cSize;
+                      const cDrawY = drawY + sy * cSize;
+                      drawTiles.push({
+                        data: child.data,
+                        drawX: cDrawX, drawY: cDrawY, size: cSize,
+                        clipX: cDrawX, clipY: cDrawY, clipSize: cSize
+                      });
+                      foundChild = true;
+                    }
+                  }
+                }
+                if (foundChild) return true;
+              }
+              return false;
+            };
+
+            const reachPx2d = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy));
             if (!cam.is3d) {
-              const reachPx = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy));
-              const reachSq = reachPx * reachPx;
-              const spanTiles = Math.min(4, Math.ceil(reachPx / tileSizePx) + 1);
+              const reachSq = reachPx2d * reachPx2d;
+              const spanTiles = Math.min(6, Math.ceil(reachPx2d / tileSizePx) + 1);
               const baseTx = Math.floor(centerTile.x);
               const baseTy = Math.floor(centerTile.y);
 
@@ -4962,26 +5237,7 @@
                       clipX: drawX, clipY: drawY, clipSize: tileSizePx
                     });
                   } else {
-                    for (let dz = 1; dz <= 2; dz++) {
-                      const pz = z - dz;
-                      if (pz < 4) break;
-                      const scale = Math.pow(2, dz);
-                      const ptx = Math.floor(tx / scale);
-                      const pty = Math.floor(ty / scale);
-                      const parent = peekVectorTile(pz, ptx, pty);
-                      if (parent && parent.ready && parent.data) {
-                        const pSize = tileSizePx * scale;
-                        const pCenter = latLonToTileXY(center.lat, center.lon, pz);
-                        const pDrawX = (ptx - pCenter.x) * pSize;
-                        const pDrawY = (pty - pCenter.y) * pSize;
-                        drawTiles.push({
-                          data: parent.data,
-                          drawX: pDrawX, drawY: pDrawY, size: pSize,
-                          clipX: drawX, clipY: drawY, clipSize: tileSizePx
-                        });
-                        break;
-                      }
-                    }
+                    pushVectorFallback(tx, ty, drawX, drawY, false);
                   }
                 }
               }
@@ -4992,9 +5248,8 @@
               const fwdShiftPx = Math.min(fwdLimit * 0.42, tileSizePx * 1.6);
               const focusTx = Math.floor(centerTile.x + (fwdShiftPx * sinH) / tileSizePx);
               const focusTy = Math.floor(centerTile.y + (-fwdShiftPx * cosH) / tileSizePx);
-              const spanTiles = Math.min(4, Math.ceil((fwdLimit * 0.65) / tileSizePx) + 1);
+              const spanTiles = Math.min(5, Math.ceil((fwdLimit * 0.65) / tileSizePx) + 1);
               const sideHalfBase = w * 0.55;
-              const seenParentKeys = new Set();
 
               for (let dxT = -spanTiles; dxT <= spanTiles; dxT++) {
                 for (let dyT = -spanTiles; dyT <= spanTiles; dyT++) {
@@ -5026,31 +5281,45 @@
                       clipX: drawX, clipY: drawY, clipSize: tileSizePx
                     });
                   } else {
-                    for (let dz = 1; dz <= 2; dz++) {
-                      const pz = z - dz;
-                      if (pz < 4) break;
-                      const scale = Math.pow(2, dz);
-                      const ptx = Math.floor(tx / scale);
-                      const pty = Math.floor(ty / scale);
-                      const pKey = `${pz}/${ptx}/${pty}`;
-                      if (seenParentKeys.has(pKey)) break;
-                      const parent = peekVectorTile(pz, ptx, pty);
-                      if (parent && parent.ready && parent.data) {
-                        seenParentKeys.add(pKey);
-                        const pSize = tileSizePx * scale;
-                        const pCenter = latLonToTileXY(center.lat, center.lon, pz);
-                        const pDrawX = (ptx - pCenter.x) * pSize;
-                        const pDrawY = (pty - pCenter.y) * pSize;
-                        drawTiles.push({
-                          data: parent.data,
-                          drawX: pDrawX, drawY: pDrawY, size: pSize,
-                          clipX: pDrawX, clipY: pDrawY, clipSize: pSize
-                        });
-                        break;
-                      }
-                    }
+                    pushVectorFallback(tx, ty, drawX, drawY, true);
                   }
                 }
+              }
+            }
+
+            // Viimase abinõu kaitse: kui kiirel mitmeastmelisel suumil või halva ühendusega ei leitud ühtki plaati,
+            // kuva suvaline puhvris olev lähima suumitasemega kattuv plaat, et kaart ei vilguks kunagi tühjaks
+            if (drawTiles.length === 0 && vectorTileCache.size > 0) {
+              const fallbackReach = (cam.is3d ? 2600 : reachPx2d) * 1.25;
+              const fallbackReachSq = fallbackReach * fallbackReach;
+              let bestDiff = Infinity;
+              let bestCandidates = [];
+              for (const entry of vectorTileCache.values()) {
+                if (!entry || !entry.ready || !entry.data || entry.z === undefined) continue;
+                const diff = Math.abs(entry.z - z);
+                if (diff > bestDiff) continue;
+                const eSize = (40075016.68557849 * cosLat / Math.pow(2, entry.z)) * pxPerM;
+                if (eSize < 16) continue;
+                const eCenter = getCenterForZ(entry.z);
+                const eDrawX = (entry.tx - eCenter.x) * eSize;
+                const eDrawY = (entry.ty - eCenter.y) * eSize;
+                const nearX = Math.max(eDrawX, 0, -(eDrawX + eSize));
+                const nearY = Math.max(eDrawY, 0, -(eDrawY + eSize));
+                if (nearX * nearX + nearY * nearY > fallbackReachSq) continue;
+                if (diff < bestDiff) {
+                  bestDiff = diff;
+                  bestCandidates = [];
+                }
+                if (bestCandidates.length < 16) {
+                  bestCandidates.push({
+                    data: entry.data,
+                    drawX: eDrawX, drawY: eDrawY, size: eSize,
+                    clipX: eDrawX, clipY: eDrawY, clipSize: eSize
+                  });
+                }
+              }
+              for (let i = 0; i < bestCandidates.length; i++) {
+                drawTiles.push(bestCandidates[i]);
               }
             }
 
@@ -5340,16 +5609,22 @@
 
           // A) RASTER-ALUSKAARDID (AINULT TEEKONNA VAATES — KOMPASSIVAATES PUHAS TAUST)
           if (!isMinimalCompass && !bm.isVectorGraphic && bm.layers && bm.layers.length > 0) {
+            const isDrawableTile = (e) => Boolean(e && e.ready && e.img && e.img.complete && e.img.naturalWidth > 0);
             const drawRasterLayers = (tCtx, targetScale, reachPx, shiftFwdPx) => {
               const baseAlpha = state.dayMode ? 0.96 : 0.90;
+              const shiftX = shiftFwdPx * sinH;
+              const shiftY = -shiftFwdPx * cosH;
+              const reachSq = reachPx * reachPx;
               for (let li = 0; li < bm.layers.length; li++) {
                 const layerCfg = bm.layers[li];
-                const layerZ = Math.min(z, layerCfg.maxZoom || bm.maxZoom);
+                const maxLayerZ = layerCfg.maxZoom || bm.maxZoom;
+                const layerZ = Math.min(z, maxLayerZ);
                 const layerTileSizePx = (40075016.68557849 * cosLat / Math.pow(2, layerZ)) * pxPerM;
                 const layerCenterTile = layerZ === z ? centerTile : latLonToTileXY(center.lat, center.lon, layerZ);
-                const lBaseTx = Math.floor(layerCenterTile.x + (shiftFwdPx * sinH) / layerTileSizePx);
-                const lBaseTy = Math.floor(layerCenterTile.y + (-shiftFwdPx * cosH) / layerTileSizePx);
-                const lSpan = Math.min(5, Math.ceil(reachPx / layerTileSizePx) + 1);
+                const lBaseTx = Math.floor(layerCenterTile.x + shiftX / layerTileSizePx);
+                const lBaseTy = Math.floor(layerCenterTile.y + shiftY / layerTileSizePx);
+                const lSpan = Math.min(7, Math.ceil(reachPx / layerTileSizePx) + 1);
+                let drewAny = false;
 
                 tCtx.globalAlpha = layerCfg.overlay ? 0.95 : baseAlpha;
                 if (!state.dayMode && typeof tCtx.filter === "string") {
@@ -5368,18 +5643,25 @@
                     const ty = lBaseTy + dyT;
                     const drawX = (tx - layerCenterTile.x) * layerTileSizePx;
                     const drawY = (ty - layerCenterTile.y) * layerTileSizePx;
+                    const nearX = Math.max(drawX - shiftX, 0, shiftX - (drawX + layerTileSizePx));
+                    const nearY = Math.max(drawY - shiftY, 0, shiftY - (drawY + layerTileSizePx));
+                    if (nearX * nearX + nearY * nearY > reachSq) continue;
+
                     const entry = getTileImage(layerCfg, layerZ, tx, ty);
-                    if (entry && entry.ready) {
+                    if (isDrawableTile(entry)) {
                       tCtx.drawImage(entry.img, drawX, drawY, layerTileSizePx + 0.8, layerTileSizePx + 0.8);
+                      drewAny = true;
                     } else if (!layerCfg.overlay) {
-                      for (let dz = 1; dz <= 2; dz++) {
+                      let drewFallback = false;
+                      // 1) Suurendamisel otsi puhvris olevaid vanemplaate (kuni 6 taset üles)
+                      for (let dz = 1; dz <= 6; dz++) {
                         const pz = layerZ - dz;
                         if (pz < 4) break;
                         const scale = Math.pow(2, dz);
                         const ptx = Math.floor(tx / scale);
                         const pty = Math.floor(ty / scale);
                         const parent = peekCachedTile(layerCfg, pz, ptx, pty);
-                        if (parent && parent.ready && parent.img.naturalWidth > 0) {
+                        if (isDrawableTile(parent)) {
                           const subX = ((tx % scale) + scale) % scale;
                           const subY = ((ty % scale) + scale) % scale;
                           const sw = parent.img.naturalWidth / scale;
@@ -5389,10 +5671,71 @@
                             subX * sw, subY * sh, sw, sh,
                             drawX, drawY, layerTileSizePx + 0.8, layerTileSizePx + 0.8
                           );
+                          drewFallback = true;
+                          drewAny = true;
                           break;
                         }
                       }
+                      // 2) Välja suumimisel kasuta puhvris olevaid detailsemaid lapsplaate (z+1..z+2)
+                      if (!drewFallback) {
+                        for (let dz = 1; dz <= 2; dz++) {
+                          const cz = layerZ + dz;
+                          if (cz > maxLayerZ) break;
+                          const scale = Math.pow(2, dz);
+                          const cSize = layerTileSizePx / scale;
+                          let foundChild = false;
+                          for (let sx = 0; sx < scale; sx++) {
+                            for (let sy = 0; sy < scale; sy++) {
+                              const child = peekCachedTile(layerCfg, cz, tx * scale + sx, ty * scale + sy);
+                              if (isDrawableTile(child)) {
+                                tCtx.drawImage(
+                                  child.img,
+                                  drawX + sx * cSize, drawY + sy * cSize,
+                                  cSize + 0.8, cSize + 0.8
+                                );
+                                foundChild = true;
+                                drewAny = true;
+                              }
+                            }
+                          }
+                          if (foundChild) break;
+                        }
+                      }
                     }
+                  }
+                }
+
+                // 3) Viimase abinõu kaitse: kui kiirel välja suumimisel või ühenduseta ei olnud ühtki plaati valmis,
+                // kuva lähima suumitasemega puhvris olev kattuv rasterplaat, et aluskaart ei kaoks kunagi täielikult
+                if (!drewAny && !layerCfg.overlay && tileCache.size > 0) {
+                  let bestDiff = Infinity;
+                  let bestList = [];
+                  const fallbackReachSq = reachSq * 1.4;
+                  const cByZ = {};
+                  for (const e of tileCache.values()) {
+                    if (!e || e.layerId !== layerCfg.id || !isDrawableTile(e) || e.z === undefined) continue;
+                    const diff = Math.abs(e.z - layerZ);
+                    if (diff > bestDiff) continue;
+                    const eSize = (40075016.68557849 * cosLat / Math.pow(2, e.z)) * pxPerM;
+                    if (eSize < 12) continue;
+                    if (!cByZ[e.z]) cByZ[e.z] = latLonToTileXY(center.lat, center.lon, e.z);
+                    const eCenter = cByZ[e.z];
+                    const eDrawX = (e.tx - eCenter.x) * eSize;
+                    const eDrawY = (e.ty - eCenter.y) * eSize;
+                    const nearX = Math.max(eDrawX - shiftX, 0, shiftX - (eDrawX + eSize));
+                    const nearY = Math.max(eDrawY - shiftY, 0, shiftY - (eDrawY + eSize));
+                    if (nearX * nearX + nearY * nearY > fallbackReachSq) continue;
+                    if (diff < bestDiff) {
+                      bestDiff = diff;
+                      bestList = [];
+                    }
+                    if (bestList.length < 24) {
+                      bestList.push({ img: e.img, x: eDrawX, y: eDrawY, size: eSize });
+                    }
+                  }
+                  for (let bi = 0; bi < bestList.length; bi++) {
+                    const item = bestList[bi];
+                    tCtx.drawImage(item.img, item.x, item.y, item.size + 0.8, item.size + 0.8);
                   }
                 }
               }
@@ -6194,6 +6537,17 @@
           new ResizeObserver(() => resizeCanvas()).observe(el.radarCanvas.parentElement);
         } catch (_) {}
       }
+      window.addEventListener("online", () => {
+        resetFailedTiles(false);
+        initOpenFreeMapTileJson();
+        addLog("Võrguühendus taastus — aluskaardid laetakse uuesti");
+      });
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) {
+          resetFailedTiles(false);
+          state.needsRedraw = true;
+        }
+      });
 
       addLog(`Käivitamine (${window.location.protocol}//${window.location.host || "kohalik"})`);
       let savedBaseMap = "graphic";
