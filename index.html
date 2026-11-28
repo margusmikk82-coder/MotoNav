@@ -962,8 +962,8 @@
         soundOn: true,
         dayMode: false,
         wakeLock: null,
-        zoomLevels: [100, 175, 300, 500, 800, 1500, 3000, 6000, 15000, 40000, 100000],
-        zoomIndex: 1,
+        zoomLevels: [30, 50, 75, 110, 175, 300, 500, 800, 1500, 3000, 6000, 15000, 40000, 100000, 250000, 500000, 1000000],
+        zoomIndex: 4,
         radarRadiusM: 175,
         targetRadiusM: 175,
         currentTileZ: null,
@@ -1184,9 +1184,11 @@
 
       function updateScaleBadge() {
         let rounded;
-        if (state.radarRadiusM < 1000) rounded = Math.round(state.radarRadiusM / 10) * 10;
+        if (state.radarRadiusM < 100) rounded = Math.round(state.radarRadiusM / 5) * 5;
+        else if (state.radarRadiusM < 1000) rounded = Math.round(state.radarRadiusM / 10) * 10;
         else if (state.radarRadiusM < 10000) rounded = Math.round(state.radarRadiusM / 100) * 100;
-        else rounded = Math.round(state.radarRadiusM / 1000) * 1000;
+        else if (state.radarRadiusM < 100000) rounded = Math.round(state.radarRadiusM / 1000) * 1000;
+        else rounded = Math.round(state.radarRadiusM / 10000) * 10000;
 
         const prefix = state.autoZoom ? "AUTO" : "KÄSI";
         const txt = `${prefix} · ${formatDistance(rounded)}`;
@@ -1206,7 +1208,7 @@
       }
 
       function setManualRadius(radiusM, skipRoadFetch, skipPoiFetch) {
-        const clamped = Math.max(75, Math.min(100000, radiusM));
+        const clamped = Math.max(25, Math.min(1000000, radiusM));
         state.targetRadiusM = clamped;
         state.zoomIndex = findNearestZoomIndex(clamped);
         setAutoZoomMode(false);
@@ -2001,7 +2003,7 @@
 
           if (panState.lastPinchDist > 10 && dist > 10) {
             const ratio = panState.lastPinchDist / dist;
-            const nextR = Math.max(75, Math.min(100000, state.radarRadiusM * ratio));
+            const nextR = Math.max(25, Math.min(1000000, state.radarRadiusM * ratio));
             state.radarRadiusM = nextR;
             state.targetRadiusM = nextR;
             state.zoomIndex = findNearestZoomIndex(nextR);
@@ -5419,7 +5421,7 @@
           const dprBoost = bm.isVectorGraphic ? 0 : Math.min(0.65, Math.log2(Math.max(1, window.devicePixelRatio || 1)) * 0.5);
           const exactZ = Math.log2(156543.03392 * cosLat * pxPerM) + dprBoost + (bm.isVectorGraphic ? 0 : 0.25);
           if (state.currentTileZ === null || Math.abs(exactZ - state.currentTileZ) > 0.65 || state.currentTileZ > bm.maxZoom) {
-            state.currentTileZ = Math.max(4, Math.min(bm.maxZoom, Math.round(exactZ)));
+            state.currentTileZ = Math.max(2, Math.min(bm.maxZoom, Math.round(exactZ)));
           }
           const z = state.currentTileZ;
           const tileSizePx = (40075016.68557849 * cosLat / Math.pow(2, z)) * pxPerM;
@@ -5453,7 +5455,7 @@
               // 1) Suurendamisel otsi vanemplaate (kuni 6 taset üles)
               for (let dz = 1; dz <= 6; dz++) {
                 const pz = z - dz;
-                if (pz < 4) break;
+                if (pz < 2) break;
                 const scale = Math.pow(2, dz);
                 const ptx = Math.floor(tx / scale);
                 const pty = Math.floor(ty / scale);
@@ -5948,7 +5950,7 @@
                       // 1) Suurendamisel otsi puhvris olevaid vanemplaate (kuni 6 taset üles)
                       for (let dz = 1; dz <= 6; dz++) {
                         const pz = layerZ - dz;
-                        if (pz < 4) break;
+                        if (pz < 2) break;
                         const scale = Math.pow(2, dz);
                         const ptx = Math.floor(tx / scale);
                         const pty = Math.floor(ty / scale);
@@ -6678,9 +6680,10 @@
       }
 
       function findNearestZoomIndex(radiusM) {
+        const safeR = Math.max(1, radiusM);
         let bestIdx = 0, bestDiff = Infinity;
         for (let i = 0; i < state.zoomLevels.length; i++) {
-          const d = Math.abs(state.zoomLevels[i] - radiusM);
+          const d = Math.abs(Math.log(state.zoomLevels[i] / safeR));
           if (d < bestDiff) { bestDiff = d; bestIdx = i; }
         }
         return bestIdx;
