@@ -829,31 +829,106 @@
         }
       };
 
+      const ESTONIA_BOUNDS = { minLat: 57.50, maxLat: 59.85, minLon: 21.65, maxLon: 28.215 };
+
+      function isCoordInEstonia(lat, lon) {
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+        if (lat < ESTONIA_BOUNDS.minLat || lat > ESTONIA_BOUNDS.maxLat) return false;
+        if (lon < ESTONIA_BOUNDS.minLon || lon > ESTONIA_BOUNDS.maxLon) return false;
+        // Lõuna-lääne nurk (Läti: Valmiera / Limbaži / Salacgrīva) — Ruhnu (23.24°E) ja Ikla (57.87°N) jäävad sisse
+        if (lat < 57.79 && lon >= 23.50 && lon < 25.85) return false;
+        // Peipsi/Pihkva idakallas (Venemaa: Pihkva / Gdov) — Saatse (27.79°E) ja Narva (59.37°N) jäävad sisse
+        if (lat < 59.05 && lon > 27.85) return false;
+        return true;
+      }
+
       const POI_CATEGORIES = [
         {
           id: "fuel", label: "Tanklad", code: "T", color: "#ff5252",
           overpass: ['["amenity"="fuel"]'],
           photonTags: ["amenity:fuel"],
-          photonQueries: ["tankla", "Olerex", "Circle K", "Alexela"],
-          nominatimTerms: ["tankla"],
+          photonQueries: ["tankla", "Olerex", "Circle K", "Alexela", "Neste", "Terminal", "Jetoil", "Krooning", "Hepa"],
+          nominatimTerms: ["tankla", "Olerex", "Circle K", "Alexela", "Neste", "Terminal"],
           matchValues: ["fuel"]
         },
         {
           id: "food", label: "Söögikohad", code: "S", color: "#ff9800",
-          overpass: ['["amenity"~"^(restaurant|cafe|fast_food|pub|bar|food_court|bistro)$"]'],
-          photonTags: ["amenity:restaurant", "amenity:cafe", "amenity:fast_food", "amenity:pub"],
-          photonQueries: ["restoran", "kohvik", "pubi"],
-          nominatimTerms: ["restoran"],
-          matchValues: ["restaurant", "cafe", "fast_food", "pub", "bar", "biergarten", "food_court", "bistro"]
+          overpass: [
+            '["amenity"~"^(restaurant|cafe|fast_food|pub|bar|biergarten|food_court|bistro|ice_cream)$"]',
+            '["shop"~"^(bakery|pastry|coffee)$"]'
+          ],
+          photonTags: ["amenity:restaurant", "amenity:cafe", "amenity:fast_food", "amenity:pub", "amenity:bar"],
+          photonQueries: ["restoran", "kohvik", "pubi", "bistroo", "pizza", "burger", "sushi", "pagar", "trahter", "Hesburger"],
+          nominatimTerms: ["restoran", "kohvik", "pubi", "pizza", "bistroo"],
+          matchValues: ["restaurant", "cafe", "fast_food", "pub", "bar", "biergarten", "food_court", "bistro", "ice_cream", "bakery", "pastry", "coffee"]
         },
         {
           id: "sleep", label: "Majutus", code: "M", color: "#29b6f6",
-          overpass: ['["tourism"~"^(hotel|motel|guest_house|camp_site|hostel|chalet)$"]'],
-          photonTags: ["tourism:hotel", "tourism:guest_house", "tourism:motel", "tourism:camp_site", "tourism:hostel"],
-          photonQueries: ["hotell", "külalistemaja", "puhkemaja"],
-          nominatimTerms: ["hotell"],
-          matchValues: ["hotel", "motel", "guest_house", "camp_site", "hostel", "chalet", "apartment"]
+          overpass: [
+            '["tourism"~"^(hotel|motel|guest_house|camp_site|hostel|chalet|apartment|caravan_site|wilderness_hut|alpine_hut)$"]',
+            '["leisure"="resort"]'
+          ],
+          photonTags: ["tourism:hotel", "tourism:guest_house", "tourism:motel", "tourism:camp_site", "tourism:hostel", "tourism:chalet", "tourism:apartment"],
+          photonQueries: ["hotell", "külalistemaja", "puhkemaja", "hostel", "motell", "kämping", "puhkekeskus", "külaliskorter", "spaa"],
+          nominatimTerms: ["hotell", "külalistemaja", "hostel", "puhkemaja", "kämping"],
+          matchValues: ["hotel", "motel", "guest_house", "camp_site", "hostel", "chalet", "apartment", "caravan_site", "wilderness_hut", "alpine_hut", "resort"]
         }
+      ];
+
+      // Võrdlusmeetodil (Google Maps + VisitVõru + Tanklad.ee + Booking + Maa- ja Ruumiamet In-ADS)
+      // kontrollitud Eesti huvipunktide baasnimistu — alustades Võru linnast ja lähiümbrusest.
+      const EE_VERIFIED_POIS = [
+        // --- VÕRU LINN: TANKLAD (8) ---
+        { id: "ee_voru_f1", catId: "fuel", name: "Circle K Võru Kesklinna", addr: "Jüri tn 45, Võru linn", sub: "Jüri tn 45, Võru · 24/7", lat: 57.8390, lon: 27.0063 },
+        { id: "ee_voru_f2", catId: "fuel", name: "Circle K Võru Pikk tn Automaat", addr: "Pikk tn 21a, Võru linn", sub: "Pikk tn 21a, Võru · 24/7 automaat", lat: 57.8390, lon: 27.0225 },
+        { id: "ee_voru_f3", catId: "fuel", name: "Olerex Võru Räpina mnt", addr: "Räpina mnt 18, Võru linn", sub: "Räpina mnt 18, Võru · 95/98/D", lat: 57.8501, lon: 27.0170 },
+        { id: "ee_voru_f4", catId: "fuel", name: "Olerex Võru Tallinna mnt", addr: "Tallinna mnt 38, Võru linn", sub: "Tallinna mnt 38, Võru · 24/7 · LPG", lat: 57.8588, lon: 26.9896 },
+        { id: "ee_voru_f5", catId: "fuel", name: "Terminal Oil Võru", addr: "Räpina mnt 11, Võru linn", sub: "Räpina mnt 11, Võru · 24/7 · pood", lat: 57.8485, lon: 27.0114 },
+        { id: "ee_voru_f6", catId: "fuel", name: "Neste Express Võru (Jüri)", addr: "Jüri tn 83a, Võru linn", sub: "Jüri tn 83a, Võru · 24/7 · 95/98/D", lat: 57.8321, lon: 27.0132 },
+        { id: "ee_voru_f7", catId: "fuel", name: "Neste Express Võru D", addr: "Pikk tn 6, Võru linn", sub: "Pikk tn 6, Võru · 24/7 · Diisel", lat: 57.8435, lon: 27.0145 },
+        { id: "ee_voru_f8", catId: "fuel", name: "Alexela Võru", addr: "Kose tee 6, Võru linn", sub: "Kose tee 6, Võru · 95/98/D/LPG/CNG", lat: 57.8240, lon: 27.0270 },
+
+        // --- VÕRU LINN & LÄHIÜMBRUS: SÖÖGIKOHAD (25) ---
+        { id: "ee_voru_s1",  catId: "food", name: "Pubi nr. 17", addr: "Jüri tn 17, Võru linn", sub: "Jüri tn 17, Võru", lat: 57.84567, lon: 26.99986 },
+        { id: "ee_voru_s2",  catId: "food", name: "Ränduri Pubi", addr: "Jüri tn 36, Võru linn", sub: "Jüri tn 36, Võru", lat: 57.8410, lon: 27.0044 },
+        { id: "ee_voru_s3",  catId: "food", name: "Mõisa Ait Pubi", addr: "Jüri tn 20c, Võru linn", sub: "Jüri tn 20c, Võru", lat: 57.8450, lon: 27.0007 },
+        { id: "ee_voru_s4",  catId: "food", name: "Kolm. Restoran", addr: "Jüri tn 26, Võru linn", sub: "Jüri tn 26, Võru", lat: 57.8435, lon: 27.0021 },
+        { id: "ee_voru_s5",  catId: "food", name: "Katariina Kohvik", addr: "Katariina allee 4, Võru linn", sub: "Katariina allee 4, Võru", lat: 57.8468, lon: 26.9958 },
+        { id: "ee_voru_s6",  catId: "food", name: "Stedingu Maja - Resto & Kohtumispaik", addr: "F. R. Kreutzwaldi tn 15, Võru linn", sub: "F. R. Kreutzwaldi tn 15, Võru", lat: 57.8461, lon: 26.9968 },
+        { id: "ee_voru_s7",  catId: "food", name: "Kohvik Mantelahi", addr: "Vabaduse tn 7, Võru linn", sub: "Vabaduse tn 7, Võru", lat: 57.8446, lon: 26.9992 },
+        { id: "ee_voru_s8",  catId: "food", name: "Pizza Olive", addr: "Seminari tn 5, Võru linn", sub: "Seminari tn 5, Võru", lat: 57.8482, lon: 26.9968 },
+        { id: "ee_voru_s9",  catId: "food", name: "Spring Cafe", addr: "Petseri tn 20, Võru linn", sub: "Petseri tn 20, Võru", lat: 57.8390, lon: 27.0005 },
+        { id: "ee_voru_s10", catId: "food", name: "Eva Sushi Võru", addr: "Vabaduse tn 12a, Võru linn", sub: "Vabaduse tn 12a, Võru", lat: 57.8453, lon: 27.0020 },
+        { id: "ee_voru_s11", catId: "food", name: "Kohvik Pannukas", addr: "Jüri tn 32a, Võru linn", sub: "Jüri tn 32a, Võru", lat: 57.8419, lon: 27.0036 },
+        { id: "ee_voru_s12", catId: "food", name: "TOJ Sushi", addr: "Jüri tn 22a, Võru linn", sub: "Jüri tn 22a, Võru", lat: 57.8442, lon: 27.0014 },
+        { id: "ee_voru_s13", catId: "food", name: "Tandoori House", addr: "Seminari tn 3, Võru linn", sub: "Seminari tn 3, Võru", lat: 57.8484, lon: 26.9973 },
+        { id: "ee_voru_s14", catId: "food", name: "Indigo Grill & Curry", addr: "F. R. Kreutzwaldi tn 52, Võru linn", sub: "F. R. Kreutzwaldi tn 52, Võru", lat: 57.8391, lon: 27.0032 },
+        { id: "ee_voru_s15", catId: "food", name: "Võru Namaste - Aasia restoran", addr: "Kooli tn 6, Võru linn", sub: "Kooli tn 6 (Kagukeskus), Võru", lat: 57.8447, lon: 27.0098 },
+        { id: "ee_voru_s16", catId: "food", name: "Kebab Tarõ", addr: "Kooli tn 6, Võru linn", sub: "Kooli tn 6 (Kagukeskus), Võru", lat: 57.8448, lon: 27.0101 },
+        { id: "ee_voru_s17", catId: "food", name: "Võru Pizzakiosk", addr: "Kooli tn 6, Võru linn", sub: "Kooli tn 6 (Kagukeskus), Võru", lat: 57.8446, lon: 27.0095 },
+        { id: "ee_voru_s18", catId: "food", name: "Hesburger Võru", addr: "Jüri tn 83, Võru linn", sub: "Jüri tn 83, Võru", lat: 57.8324, lon: 27.0126 },
+        { id: "ee_voru_s19", catId: "food", name: "Peetri Pizza Võru", addr: "Jüri tn 85, Võru linn", sub: "Jüri tn 85, Võru", lat: 57.8318, lon: 27.0133 },
+        { id: "ee_voru_s20", catId: "food", name: "Jaagumäe Toidukeskus", addr: "F. R. Kreutzwaldi tn 27, Võru linn", sub: "F. R. Kreutzwaldi tn 27, Võru", lat: 57.8439, lon: 26.9988 },
+        { id: "ee_voru_s21", catId: "food", name: "Koidula Kohvik", addr: "F. R. Kreutzwaldi tn 42, Võru linn", sub: "F. R. Kreutzwaldi tn 42, Võru", lat: 57.8407, lon: 27.0015 },
+        { id: "ee_voru_s22", catId: "food", name: "Kubija Hotell-Loodusspaa Restoran", addr: "Männiku tn 43a, Võru linn", sub: "Männiku tn 43a, Võru", lat: 57.8172, lon: 27.0018 },
+        { id: "ee_voru_s23", catId: "food", name: "Kohvik Soopärl", addr: "F. R. Kreutzwaldi tn 106, Võru linn", sub: "F. R. Kreutzwaldi tn 106, Võru", lat: 57.8295, lon: 27.0110 },
+        { id: "ee_voru_s24", catId: "food", name: "Hämsa Maheresto", addr: "Andsujärve tee 11, Meegomäe küla", sub: "Andsujärve tee 11, Meegomäe", lat: 57.8075, lon: 27.0265 },
+        { id: "ee_voru_s25", catId: "food", name: "Väimela Maitsed", addr: "Põlva tee 9, Väimela alevik", sub: "Põlva tee 9, Väimela", lat: 57.8935, lon: 27.0110 },
+
+        // --- VÕRU LINN & LÄHIÜMBRUS: MAJUTUS (13) ---
+        { id: "ee_voru_m1",  catId: "sleep", name: "Georgi Hotell", addr: "Jüri tn 38a, Võru linn", sub: "Jüri tn 38a, Võru", lat: 57.8405, lon: 27.0049 },
+        { id: "ee_voru_m2",  catId: "sleep", name: "Hotell Tamula", addr: "Vee tn 4, Võru linn", sub: "Vee tn 4, Võru", lat: 57.8453, lon: 26.9912 },
+        { id: "ee_voru_m3",  catId: "sleep", name: "Kubija Hotell-Loodusspaa", addr: "Männiku tn 43a, Võru linn", sub: "Männiku tn 43a, Võru", lat: 57.8172, lon: 27.0018 },
+        { id: "ee_voru_m4",  catId: "sleep", name: "Ränduri Külalistemaja", addr: "Jüri tn 36, Võru linn", sub: "Jüri tn 36, Võru", lat: 57.8410, lon: 27.0044 },
+        { id: "ee_voru_m5",  catId: "sleep", name: "Mõisa Ait Külalistemaja", addr: "Jüri tn 20c, Võru linn", sub: "Jüri tn 20c, Võru", lat: 57.8450, lon: 27.0007 },
+        { id: "ee_voru_m6",  catId: "sleep", name: "Kagu Hostel", addr: "Räpina mnt 7a, Võru linn", sub: "Räpina mnt 7a, Võru", lat: 57.8473, lon: 27.0067 },
+        { id: "ee_voru_m7",  catId: "sleep", name: "TAEVAS Külalistemaja", addr: "Katariina allee 6b/1, Võru linn", sub: "Katariina allee 6b/1, Võru", lat: 57.8463, lon: 26.9949 },
+        { id: "ee_voru_m8",  catId: "sleep", name: "Hermes Külalistemaja", addr: "Jüri tn 32a, Võru linn", sub: "Jüri tn 32a, Võru", lat: 57.8419, lon: 27.0036 },
+        { id: "ee_voru_m9",  catId: "sleep", name: "Uma Kuup Külaliskorterid", addr: "L. Koidula tn 6, Võru linn", sub: "L. Koidula tn 6, Võru", lat: 57.8477, lon: 26.9936 },
+        { id: "ee_voru_m10", catId: "sleep", name: "Puhkekodu nr. 17", addr: "Jüri tn 17, Võru linn", sub: "Jüri tn 17, Võru", lat: 57.84567, lon: 26.99986 },
+        { id: "ee_voru_m11", catId: "sleep", name: "Freinholdi Maja Külaliskorterid", addr: "F. R. Kreutzwaldi tn 52, Võru linn", sub: "F. R. Kreutzwaldi tn 52, Võru", lat: 57.8391, lon: 27.0032 },
+        { id: "ee_voru_m12", catId: "sleep", name: "Hämsaare Puhketalu & Karavanipark", addr: "Andsujärve tee 11, Meegomäe küla", sub: "Andsujärve tee 11, Meegomäe", lat: 57.8075, lon: 27.0265 },
+        { id: "ee_voru_m13", catId: "sleep", name: "Hämsaare Külalistemaja", addr: "Andsujärve tee 19, Meegomäe küla", sub: "Andsujärve tee 19, Meegomäe", lat: 57.8070, lon: 27.0274 }
       ];
 
       const BASE_MAP_ORDER = ["graphic", "maaamet", "hybrid"];
@@ -2165,12 +2240,13 @@
         }
 
         el.poiList.innerHTML = "";
-        visible.slice(0, 80).forEach((entry) => {
+        visible.slice(0, 140).forEach((entry) => {
           const p = entry.poi;
           const btn = document.createElement("button");
           btn.type = "button";
           btn.className = "poi-item";
-          const addrSub = p.sub || cat.label;
+          const baseSub = p.sub || cat.label;
+          const addrSub = p.verified ? `${baseSub} · ✓` : baseSub;
           btn.innerHTML =
             `<div><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(addrSub)}</small></div>` +
             `<span class="poi-item-dist">${formatDistance(entry.dist)}</span>`;
@@ -2182,39 +2258,323 @@
         });
       }
 
+      /* ---------- VÕRDLUSMEETOD (MULTI-ALLIKA HUVIPUNKTIDE ÜHENDAMINE, AINULT EESTI) ---------- */
+
+      const POI_GENERIC_WORDS = new Set([
+        "kohvik", "restoran", "resto", "pubi", "pub", "baar", "bar", "cafe", "bistroo", "bistro",
+        "hotell", "hotel", "motell", "motel", "hostel", "kulalistemaja", "kulaliskorterid",
+        "kulaliskorter", "guest", "house", "guesthouse", "puhkemaja", "puhketalu", "puhkekeskus",
+        "tankla", "automaattankla", "automaat", "teenindusjaam", "bensiinijaam", "express", "oil",
+        "voru", "linn", "kula", "alevik", "eesti", "estonia", "ou", "as", "nr", "ja", "and",
+        "aasia", "grill", "pizza", "spaa", "spa", "karavanipark", "kohtumispaik"
+      ]);
+
+      const POI_GENERIC_NAMES = new Set([
+        "tankla", "tanklad", "fuel", "soogikohad", "soogikoht", "restoran", "restaurant",
+        "kohvik", "cafe", "pubi", "pub", "baar", "bar", "bistroo", "majutus", "hotell",
+        "hotel", "motell", "hostel", "kulalistemaja", "puhkemaja", "kamping"
+      ]);
+
+      const POI_STREET_STOPWORDS = new Set([
+        "keskus", "kagukeskus", "kesklinna", "kooli", "juri", "pikk", "rapina", "tallinna",
+        "kreutzwaldi", "vabaduse", "seminari", "katariina", "petseri", "manniku", "koidula",
+        "andsujarve", "polva", "maantee", "tanav"
+      ]);
+
+      function normalizePoiRaw(name) {
+        return String(name || "")
+          .toLowerCase()
+          .replace(/ä/g, "a").replace(/ö/g, "o").replace(/ü/g, "u").replace(/õ/g, "o")
+          .replace(/š/g, "s").replace(/ž/g, "z")
+          .replace(/[^a-z0-9]+/g, " ")
+          .trim();
+      }
+
+      function normalizePoiCore(name) {
+        const raw = normalizePoiRaw(name);
+        if (!raw) return "";
+        const tokens = raw.split(" ").filter((t) => t && !POI_GENERIC_WORDS.has(t));
+        const stripped = tokens.join(" ").trim();
+        return stripped.length >= 3 ? stripped : raw;
+      }
+
+      function isGenericPoiName(name) {
+        const raw = normalizePoiRaw(name);
+        return !raw || POI_GENERIC_NAMES.has(raw);
+      }
+
+      function isSamePoi(a, b) {
+        if (!a || !b) return false;
+        if (a.catId && b.catId && a.catId !== b.catId) return false;
+        if (a.id && b.id && a.id === b.id) return true;
+        // Kaks erinevat käsitsi kontrollitud baasnimistu kirjet ei liideta kunagi kokku
+        if (a.verified && b.verified && a.id !== b.id) return false;
+
+        const d = distanceMeters(a, b);
+        if (d > 240) return false;
+
+        const ca = normalizePoiCore(a.name);
+        const cb = normalizePoiCore(b.name);
+        if (ca && cb && ca === cb) return true;
+
+        if (d <= 180 && ca.length >= 4 && cb.length >= 4 && (ca.includes(cb) || cb.includes(ca))) {
+          return true;
+        }
+
+        if (d <= 120 && ca && cb) {
+          const ta = ca.split(" ").filter((t) => t.length >= 5 && !POI_STREET_STOPWORDS.has(t));
+          const tb = new Set(cb.split(" ").filter((t) => t.length >= 5 && !POI_STREET_STOPWORDS.has(t)));
+          for (let i = 0; i < ta.length; i++) {
+            if (tb.has(ta[i])) return true;
+          }
+        }
+
+        if (d <= 45 && (isGenericPoiName(a.name) || isGenericPoiName(b.name))) {
+          return true;
+        }
+        return false;
+      }
+
+      function getPoiCoordRank(p) {
+        if (!p) return 0;
+        if (p.inadsVerified) return 4;
+        if (p.source === "overpass") return 3;
+        if (p.verified) return 2;
+        if (p.source === "photon") return 1.5;
+        return 1;
+      }
+
+      function pickBetterPoi(existing, incoming) {
+        const exRank = getPoiCoordRank(existing);
+        const inRank = getPoiCoordRank(incoming);
+        const coordOwner = inRank > exRank ? incoming : existing;
+
+        const verOwner = existing.verified ? existing : (incoming.verified ? incoming : null);
+        let bestName = existing.name;
+        if (verOwner && !isGenericPoiName(verOwner.name)) {
+          bestName = verOwner.name;
+        } else if (isGenericPoiName(existing.name) && !isGenericPoiName(incoming.name)) {
+          bestName = incoming.name;
+        } else if (!isGenericPoiName(incoming.name) && String(incoming.name || "").length > String(existing.name || "").length + 2) {
+          bestName = incoming.name;
+        }
+
+        let bestSub = existing.sub || "";
+        if (verOwner && verOwner.sub) {
+          bestSub = verOwner.sub;
+        } else if (String(incoming.sub || "").length > bestSub.length) {
+          bestSub = incoming.sub;
+        }
+
+        const srcSet = new Set();
+        const addSrc = (p) => {
+          if (Array.isArray(p.sources)) p.sources.forEach((s) => srcSet.add(s));
+          else if (p.source) srcSet.add(p.source);
+        };
+        addSrc(existing);
+        addSrc(incoming);
+
+        return Object.assign({}, existing, {
+          id: verOwner ? verOwner.id : existing.id,
+          lat: coordOwner.lat,
+          lon: coordOwner.lon,
+          name: bestName,
+          sub: bestSub,
+          addr: (verOwner && verOwner.addr) || existing.addr || incoming.addr || "",
+          verified: Boolean(existing.verified || incoming.verified),
+          inadsVerified: Boolean(existing.inadsVerified || incoming.inadsVerified),
+          source: coordOwner.source || existing.source || incoming.source,
+          sources: Array.from(srcSet)
+        });
+      }
+
       function mergePoiItems(existing, incoming, center, maxRadius) {
-        const seen = new Map();
+        const out = [];
         const addOne = (item) => {
+          if (!item || !isCoordInEstonia(item.lat, item.lon)) return;
           const d = distanceMeters(center, item);
           if (d > maxRadius) return;
-          const normName = String(item.name || "").toLowerCase().trim().slice(0, 14);
-          const key = `${normName}_${Math.round(item.lat * 6000)}_${Math.round(item.lon * 6000)}`;
-          if (!seen.has(key)) {
-            seen.set(key, Object.assign({}, item, { distM: d }));
+          for (let i = 0; i < out.length; i++) {
+            if (isSamePoi(out[i], item)) {
+              out[i] = pickBetterPoi(out[i], item);
+              out[i].distM = distanceMeters(center, out[i]);
+              return;
+            }
           }
+          out.push(Object.assign({}, item, { distM: d }));
         };
         existing.forEach(addOne);
         incoming.forEach(addOne);
-        const arr = Array.from(seen.values());
-        arr.sort((a, b) => a.distM - b.distM);
-        return arr;
+        out.sort((a, b) => a.distM - b.distM);
+        return out;
       }
 
-      function getSearchBbox(center, reqRadius) {
+      function getSearchBbox(center, reqRadius, estoniaOnly) {
         const dLat = reqRadius / 111320;
         const dLon = reqRadius / (111320 * Math.max(0.2, Math.cos(toRad(center.lat))));
+        let s = Math.max(-85, center.lat - dLat);
+        let n = Math.min(85, center.lat + dLat);
+        let w = Math.max(-180, center.lon - dLon);
+        let e = Math.min(180, center.lon + dLon);
+        if (estoniaOnly !== false) {
+          s = Math.max(ESTONIA_BOUNDS.minLat, s);
+          n = Math.min(ESTONIA_BOUNDS.maxLat, n);
+          w = Math.max(ESTONIA_BOUNDS.minLon, w);
+          e = Math.min(ESTONIA_BOUNDS.maxLon, e);
+          if (s >= n || w >= e) return null;
+        }
         return {
-          s: Math.max(-85, center.lat - dLat).toFixed(4),
-          n: Math.min(85, center.lat + dLat).toFixed(4),
-          w: Math.max(-180, center.lon - dLon).toFixed(4),
-          e: Math.min(180, center.lon + dLon).toFixed(4)
+          s: s.toFixed(4),
+          n: n.toFixed(4),
+          w: w.toFixed(4),
+          e: e.toFixed(4)
         };
+      }
+
+      /* ---------- EESTI KONTROLLITUD BAASNIMISTU + MAA- JA RUUMIAMET IN-ADS TÄPSUSTUS ---------- */
+
+      const INADS_POI_CACHE_KEY = "motonav_inads_poi_v1";
+      const INADS_POI_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+      let inAdsPoiCacheMem = null;
+
+      function loadInAdsPoiCache() {
+        if (inAdsPoiCacheMem) return inAdsPoiCacheMem;
+        inAdsPoiCacheMem = {};
+        try {
+          if (typeof localStorage !== "undefined") {
+            const raw = localStorage.getItem(INADS_POI_CACHE_KEY);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (parsed && typeof parsed === "object") {
+                const now = Date.now();
+                for (const k of Object.keys(parsed)) {
+                  const v = parsed[k];
+                  if (v && Number.isFinite(v.lat) && Number.isFinite(v.lon) && (now - (v.ts || 0)) < INADS_POI_CACHE_TTL_MS) {
+                    inAdsPoiCacheMem[k] = v;
+                  }
+                }
+              }
+            }
+          }
+        } catch (_) {}
+        return inAdsPoiCacheMem;
+      }
+
+      function saveInAdsPoiCache(cache) {
+        inAdsPoiCacheMem = cache;
+        try {
+          if (typeof localStorage !== "undefined") {
+            localStorage.setItem(INADS_POI_CACHE_KEY, JSON.stringify(cache));
+          }
+        } catch (_) {}
+      }
+
+      function buildVerifiedPoiItem(raw, cat, cache, sharedIdx, sharedTotal) {
+        const cached = raw.addr ? cache[raw.addr] : null;
+        let lat = cached ? cached.lat : raw.lat;
+        let lon = cached ? cached.lon : raw.lon;
+        // Sama hoone aadressiga kohad (nt Kagukeskus Kooli tn 6) nihutatakse ~8 m, et kõik pin'id oleksid kaardil loetavad
+        if (cached && sharedTotal > 1) {
+          const angle = (sharedIdx / sharedTotal) * Math.PI * 2;
+          lat += Math.cos(angle) * 0.000075;
+          lon += Math.sin(angle) * 0.00012;
+        }
+        return {
+          id: raw.id,
+          lat,
+          lon,
+          name: raw.name,
+          addr: raw.addr || "",
+          sub: raw.sub || raw.addr || cat.label,
+          catId: cat.id,
+          color: cat.color,
+          code: cat.code,
+          verified: true,
+          inadsVerified: Boolean(cached),
+          source: cached ? "verified+inads" : "verified",
+          sources: cached ? ["verified", "inads"] : ["verified"]
+        };
+      }
+
+      function getVerifiedEstoniaPois(cat, center, reqRadius) {
+        if (!cat || !center) return [];
+        const cache = loadInAdsPoiCache();
+        const catEntries = EE_VERIFIED_POIS.filter((p) => p.catId === cat.id);
+        const addrCounts = new Map();
+        const addrSeen = new Map();
+        for (let i = 0; i < catEntries.length; i++) {
+          const a = catEntries[i].addr || "";
+          if (a) addrCounts.set(a, (addrCounts.get(a) || 0) + 1);
+        }
+
+        const out = [];
+        for (let i = 0; i < catEntries.length; i++) {
+          const raw = catEntries[i];
+          const a = raw.addr || "";
+          const idx = a ? (addrSeen.get(a) || 0) : 0;
+          if (a) addrSeen.set(a, idx + 1);
+          const item = buildVerifiedPoiItem(raw, cat, cache, idx, a ? (addrCounts.get(a) || 1) : 1);
+          if (!isCoordInEstonia(item.lat, item.lon)) continue;
+          const d = distanceMeters(center, item);
+          if (d <= reqRadius) {
+            item.distM = d;
+            out.push(item);
+          }
+        }
+        return out;
+      }
+
+      async function refineVerifiedPoisWithInAds(cat, center, reqRadius, onUpdated, shouldCancel) {
+        const cache = loadInAdsPoiCache();
+        const visibleVerified = getVerifiedEstoniaPois(cat, center, reqRadius);
+        const toResolve = [];
+        const seenAddr = new Set();
+        for (let i = 0; i < visibleVerified.length; i++) {
+          const p = visibleVerified[i];
+          if (p.addr && !cache[p.addr] && !seenAddr.has(p.addr)) {
+            seenAddr.add(p.addr);
+            toResolve.push({ addr: p.addr, baseLat: p.lat, baseLon: p.lon });
+          }
+        }
+        if (toResolve.length === 0) return;
+
+        let changed = false;
+        const BATCH_SIZE = 4;
+        for (let i = 0; i < toResolve.length; i += BATCH_SIZE) {
+          if (typeof shouldCancel === "function" && shouldCancel()) return;
+          const slice = toResolve.slice(i, i + BATCH_SIZE);
+          await Promise.all(slice.map(async (entry) => {
+            try {
+              const url = `https://inaadress.maaamet.ee/inaadress/gazetteer?address=${encodeURIComponent(entry.addr)}&results=1&unik=1&appartment=0`;
+              const res = await fetchWithTimeout(url, { method: "GET" }, 4000);
+              if (!res.ok) return;
+              const data = await res.json();
+              const first = data && Array.isArray(data.addresses) ? data.addresses[0] : null;
+              if (!first) return;
+              const c = toValidCoord(first.viitepunkt_b, first.viitepunkt_l);
+              if (!c || !isCoordInEstonia(c.lat, c.lon)) return;
+              // Kaitse vale vaste eest: ametlik hoone ei tohi baaspunktist olla kaugemal kui 2.5 km
+              if (distanceMeters({ lat: entry.baseLat, lon: entry.baseLon }, c) > 2500) return;
+              cache[entry.addr] = { lat: c.lat, lon: c.lon, ts: Date.now() };
+              changed = true;
+            } catch (_) {}
+          }));
+        }
+
+        if (changed) {
+          saveInAdsPoiCache(cache);
+          if (typeof shouldCancel === "function" && shouldCancel()) return;
+          if (typeof onUpdated === "function") {
+            onUpdated(getVerifiedEstoniaPois(cat, center, reqRadius));
+          }
+        }
       }
 
       async function fetchPoisFromPhoton(cat, center, reqRadius, onBatch) {
         const results = [];
         const queries = cat.photonQueries || [];
-        const bb = getSearchBbox(center, reqRadius);
+        const bb = getSearchBbox(center, reqRadius, true);
+        if (!bb) return results;
         const tagParam = (cat.photonTags && cat.photonTags.length === 1)
           ? `&osm_tag=${encodeURIComponent(cat.photonTags[0])}`
           : "";
@@ -2232,11 +2592,12 @@
               const coords = f.geometry && f.geometry.coordinates;
               if (!coords || coords.length < 2) continue;
               const c = toValidCoord(coords[1], coords[0]);
-              if (!c) continue;
+              if (!c || !isCoordInEstonia(c.lat, c.lon)) continue;
               const d = distanceMeters(center, c);
               if (d > reqRadius) continue;
 
               const p = f.properties || {};
+              if (p.countrycode && String(p.countrycode).toUpperCase() !== "EE") continue;
               const val = String(p.osm_value || "").toLowerCase();
               const key = String(p.osm_key || "").toLowerCase();
               const name = p.name || q;
@@ -2253,7 +2614,8 @@
               const item = {
                 id: `ph_${p.osm_id || i}_${Math.round(c.lat * 10000)}`,
                 lat: c.lat, lon: c.lon, name, sub,
-                catId: cat.id, color: cat.color, code: cat.code, distM: d
+                catId: cat.id, color: cat.color, code: cat.code, distM: d,
+                source: "photon", sources: ["photon"]
               };
               batch.push(item);
               results.push(item);
@@ -2269,14 +2631,19 @@
       }
 
       async function fetchPoisFromOverpass(cat, center, reqRadius, shouldCancel) {
-        const bb = getSearchBbox(center, reqRadius);
+        const bb = getSearchBbox(center, reqRadius, true);
+        if (!bb) return [];
         const parts = [];
         for (let i = 0; i < cat.overpass.length; i++) {
           const f = cat.overpass[i];
-          parts.push(`node${f}(${bb.s},${bb.w},${bb.n},${bb.e});way${f}(${bb.s},${bb.w},${bb.n},${bb.e});`);
+          parts.push(
+            `node${f}(${bb.s},${bb.w},${bb.n},${bb.e});` +
+            `way${f}(${bb.s},${bb.w},${bb.n},${bb.e});` +
+            `relation${f}(${bb.s},${bb.w},${bb.n},${bb.e});`
+          );
         }
 
-        const query = `[out:json][timeout:8];(${parts.join("")});out center qt 160;`;
+        const query = `[out:json][timeout:10];(${parts.join("")});out center qt 300;`;
         const data = await enqueueOverpass(query, "POI-Overpass", shouldCancel);
         if (!data || !Array.isArray(data.elements)) return null;
 
@@ -2286,11 +2653,12 @@
           const rawLat = elem.lat !== undefined ? elem.lat : (elem.center && elem.center.lat);
           const rawLon = elem.lon !== undefined ? elem.lon : (elem.center && elem.center.lon);
           const c = toValidCoord(rawLat, rawLon);
-          if (!c) continue;
+          if (!c || !isCoordInEstonia(c.lat, c.lon)) continue;
           const d = distanceMeters(center, c);
           if (d > reqRadius) continue;
 
           const tags = elem.tags || {};
+          if (tags["addr:country"] && String(tags["addr:country"]).toUpperCase() !== "EE") continue;
           const name = tags.name || tags.brand || tags.operator || cat.label;
           const ovStreet = tags["addr:street"]
             ? (tags["addr:housenumber"] ? `${tags["addr:street"]} ${tags["addr:housenumber"]}` : tags["addr:street"])
@@ -2302,19 +2670,23 @@
           out.push({
             id: `ov_${elem.type}_${elem.id}`,
             lat: c.lat, lon: c.lon, name, sub,
-            catId: cat.id, color: cat.color, code: cat.code, distM: d
+            catId: cat.id, color: cat.color, code: cat.code, distM: d,
+            source: "overpass", sources: ["overpass"]
           });
         }
         return out;
       }
 
-      async function fetchPoisFromNominatim(cat, center, reqRadius) {
-        const terms = cat.nominatimTerms || [];
-        const bb = getSearchBbox(center, reqRadius);
+      async function fetchPoisFromNominatim(cat, center, reqRadius, shouldCancel, maxTerms) {
+        const allTerms = cat.nominatimTerms || [];
+        const terms = Number.isFinite(maxTerms) ? allTerms.slice(0, maxTerms) : allTerms;
+        const bb = getSearchBbox(center, reqRadius, true);
+        if (!bb) return [];
         const out = [];
         for (let t = 0; t < terms.length; t++) {
+          if (typeof shouldCancel === "function" && shouldCancel()) break;
           try {
-            const url = `https://nominatim.openstreetmap.org/search?format=json&bounded=1&viewbox=${bb.w},${bb.n},${bb.e},${bb.s}&limit=25&accept-language=et&q=${encodeURIComponent(terms[t])}`;
+            const url = `https://nominatim.openstreetmap.org/search?format=json&bounded=1&countrycodes=ee&viewbox=${bb.w},${bb.n},${bb.e},${bb.s}&limit=25&accept-language=et&q=${encodeURIComponent(terms[t])}`;
             const res = await fetchWithTimeout(url, { method: "GET" }, 5000);
             if (!res.ok) continue;
             const arr = await res.json();
@@ -2322,7 +2694,7 @@
             for (let i = 0; i < arr.length; i++) {
               const it = arr[i];
               const c = toValidCoord(it.lat, it.lon);
-              if (!c) continue;
+              if (!c || !isCoordInEstonia(c.lat, c.lon)) continue;
               const d = distanceMeters(center, c);
               if (d > reqRadius) continue;
               const name = (it.name && it.name.trim()) || (it.display_name ? it.display_name.split(",")[0] : cat.label);
@@ -2330,10 +2702,14 @@
               out.push({
                 id: `nm_${it.osm_id || i}_${Math.round(c.lat * 10000)}`,
                 lat: c.lat, lon: c.lon, name, sub,
-                catId: cat.id, color: cat.color, code: cat.code, distM: d
+                catId: cat.id, color: cat.color, code: cat.code, distM: d,
+                source: "nominatim", sources: ["nominatim"]
               });
             }
           } catch (_) {}
+          if (t + 1 < terms.length) {
+            await new Promise((r) => setTimeout(r, 320));
+          }
         }
         return out;
       }
@@ -2349,6 +2725,22 @@
         }
 
         const reqRadius = Math.max(1000, Math.min(100000, Math.round(state.targetRadiusM)));
+
+        // Piirdume hetkel ainult Eesti piirkonnaga
+        const eeBbox = getSearchBbox(center, reqRadius, true);
+        if (!eeBbox) {
+          state.pois.reqSeq += 1;
+          state.pois.items = [];
+          state.pois.center = center;
+          state.pois.radiusM = reqRadius;
+          state.pois.fetching = false;
+          state.pois.sourceNote = "kaardistus on piiratud Eestiga";
+          updatePoiButtonLabel();
+          renderPoiModalContent();
+          state.needsRedraw = true;
+          showToast("Huvipunktide kaardistus on hetkel piiratud Eestiga", 2800);
+          return;
+        }
 
         // Ära katkesta pooleliolevat POI-päringut iga 1 s GPS-i uuendusega!
         if (!force && state.pois.fetching) {
@@ -2372,7 +2764,7 @@
             state.pois.radiusM = cached.radiusM;
             state.pois.fetching = false;
             const cnt = countPoisInCircle();
-            state.pois.sourceNote = cnt > 0 ? `${cnt} punkti (puhver)` : "tulemusi ei leitud";
+            state.pois.sourceNote = cnt > 0 ? `${cnt} punkti (Eesti · puhver)` : "tulemusi ei leitud";
             updatePoiButtonLabel();
             renderPoiModalContent();
             state.needsRedraw = true;
@@ -2395,49 +2787,71 @@
         const isCancelled = () => mySeq !== state.pois.reqSeq;
         state.pois.fetching = true;
         state.pois.lastAttemptMs = Date.now();
-        state.pois.sourceNote = "otsin...";
+        state.pois.sourceNote = "otsin (Eesti allikad)...";
+
+        // 0 ms kohene kuva Eesti võrdlusmeetodil kontrollitud baasnimistust (nt Võru linn)
+        const verifiedSeed = getVerifiedEstoniaPois(cat, center, reqRadius);
+        if (verifiedSeed.length > 0) {
+          state.pois.items = mergePoiItems(state.pois.items, verifiedSeed, center, reqRadius);
+          state.pois.center = center;
+          state.pois.radiusM = Math.max(state.pois.radiusM, reqRadius);
+          state.pois.sourceNote = `${verifiedSeed.length} kontrollitud, võrdlen avaandmeid...`;
+          state.needsRedraw = true;
+        }
+
         updatePoiButtonLabel();
         renderPoiModalContent();
-        addLog(`POI otsing: ${cat.label} (${formatDistance(reqRadius)})`);
+        addLog(`POI otsing (EE): ${cat.label} (${formatDistance(reqRadius)})`);
 
         const applyBatch = (incoming, noteLabel) => {
           if (isCancelled() || !incoming || incoming.length === 0) return;
           state.pois.items = mergePoiItems(state.pois.items, incoming, center, reqRadius);
           state.pois.center = center;
           state.pois.radiusM = Math.max(state.pois.radiusM, reqRadius);
-          state.pois.sourceNote = noteLabel;
+          if (noteLabel) state.pois.sourceNote = noteLabel;
           updatePoiButtonLabel();
           renderPoiModalContent();
           state.needsRedraw = true;
         };
 
+        // 1. Photon (kiire OSM otsing, Eesti filter)
         const photonPromise = fetchPoisFromPhoton(cat, center, reqRadius, (batch) => {
-          applyBatch(batch, "kiire otsing OK, täiendan...");
+          applyBatch(batch, "võrdlen allikaid (Photon + OSM + In-ADS)...");
         });
 
+        // 2. Overpass OSM (node + way + relation, Eesti filter)
         const overpassPromise = fetchPoisFromOverpass(cat, center, reqRadius, isCancelled).then((ovItems) => {
           if (isCancelled()) return;
           if (ovItems && ovItems.length > 0) {
-            state.pois.items = mergePoiItems(ovItems, state.pois.items, center, reqRadius);
-            state.pois.center = center;
-            state.pois.radiusM = Math.max(state.pois.radiusM, reqRadius);
+            applyBatch(ovItems, "OSM Overpass võrreldud...");
             addLog(`Overpass POI: +${ovItems.length} (${cat.label})`);
-            updatePoiButtonLabel();
-            renderPoiModalContent();
-            state.needsRedraw = true;
           }
         });
 
-        await Promise.all([photonPromise, overpassPromise]);
+        // 3. Nominatim (paralleelne täiendus, countrycodes=ee, 3 põhimärksõna)
+        const nominatimPromise = fetchPoisFromNominatim(cat, center, reqRadius, isCancelled, 3).then((nmItems) => {
+          if (isCancelled()) return;
+          if (nmItems && nmItems.length > 0) {
+            applyBatch(nmItems, null);
+            addLog(`Nominatim POI: +${nmItems.length} (${cat.label})`);
+          }
+        });
+
+        // 4. Maa- ja Ruumiamet In-ADS ametliku hoonepunkti täpsustus kontrollitud punktidele
+        const inAdsPromise = refineVerifiedPoisWithInAds(cat, center, reqRadius, (refinedItems) => {
+          applyBatch(refinedItems, null);
+        }, isCancelled);
+
+        await Promise.all([photonPromise, overpassPromise, nominatimPromise, inAdsPromise]);
         if (isCancelled()) return;
 
-        // Varuallikas Nominatim, kui Photon + Overpass ei andnud tulemusi
-        if (state.pois.items.length === 0) {
-          const nmItems = await fetchPoisFromNominatim(cat, center, reqRadius);
+        // Kui tulemusi veel vähe, küsi Nominatimist ka ülejäänud märksõnad
+        if (state.pois.items.length < 3 && (cat.nominatimTerms || []).length > 3) {
+          const extraNm = await fetchPoisFromNominatim(cat, center, reqRadius, isCancelled);
           if (isCancelled()) return;
-          if (nmItems.length > 0) {
-            state.pois.items = mergePoiItems(state.pois.items, nmItems, center, reqRadius);
-            addLog(`Nominatim POI: +${nmItems.length} (${cat.label})`);
+          if (extraNm.length > 0) {
+            state.pois.items = mergePoiItems(state.pois.items, extraNm, center, reqRadius);
+            addLog(`Nominatim POI (laiendatud): +${extraNm.length} (${cat.label})`);
           }
         }
 
@@ -2453,7 +2867,7 @@
           });
         }
         const cnt = countPoisInCircle();
-        state.pois.sourceNote = cnt > 0 ? `${cnt} punkti ringis` : "tulemusi ei leitud";
+        state.pois.sourceNote = cnt > 0 ? `${cnt} punkti ringis (Eesti)` : "tulemusi ei leitud";
         updatePoiButtonLabel();
         renderPoiModalContent();
         state.needsRedraw = true;
