@@ -4508,7 +4508,15 @@
           el.turnDesc.textContent = translateManeuver(step);
           el.turnStreet.textContent = step.name || state.destination.name;
           renderManeuverIcon(getIconKey(step));
-          checkVoiceTurnPrompts(step, nextIdx, distToTurn, speedMps);
+          let prevTurnIdx = 0;
+          for (let pi = nextIdx - 1; pi >= 1; pi--) {
+            if (isVoiceWorthyStep(steps[pi])) {
+              prevTurnIdx = pi;
+              break;
+            }
+          }
+          const legLenM = Math.max(0, stepAlongM - cumDist[steps[prevTurnIdx].geomIdx]);
+          checkVoiceTurnPrompts(step, nextIdx, distToTurn, speedMps, legLenM);
         }
         el.remDistVal.textContent = formatDistance(remDist);
         el.etaVal.textContent = formatDuration(remSec);
@@ -6561,8 +6569,9 @@
         const action = speakableManeuverAction(step, true);
         let distPrefix = "Kolmesaja meetri pärast";
         if (Number.isFinite(distM)) {
-          if (distM <= 125) distPrefix = "Saja meetri pärast";
-          else if (distM <= 225) distPrefix = "Kahesaja meetri pärast";
+          if (distM <= 120) distPrefix = "Saja meetri pärast";
+          else if (distM <= 170) distPrefix = "Saja viiekümne meetri pärast";
+          else if (distM <= 240) distPrefix = "Kahesaja meetri pärast";
         }
         return `${distPrefix} ${action}.`;
       }
@@ -6600,16 +6609,22 @@
         }
       }
 
-      function checkVoiceTurnPrompts(step, nextIdx, distToTurn, speedMps) {
+      function checkVoiceTurnPrompts(step, nextIdx, distToTurn, speedMps, legLenM) {
         if (!state.soundOn || !step || !isVoiceWorthyStep(step)) return;
         const earlyKey = `${nextIdx}_1000`;
         const warnKey = `${nextIdx}_300`;
         const nowKey = `${nextIdx}_now`;
 
-        // Kiirusest sõltuv vahetu pöörde eelkäskluse kaugus (~4,2 s enne pööret, 55–115 m)
-        const immediateDist = Math.max(55, Math.min(115, (speedMps || 0) * 4.2));
+        // Kiirusest sõltuv täitekäsu kaugus (~4,2 s enne pööret, 55–115 m).
+        // Lühikesel lõigul kohe peale eelmist pööret (< 180 m) tuuakse täitekäsk lähemale (40–48% lõigust),
+        // et kohe peale eelmist pööret jõuaks anda selge eelkäsuga hoiatuse ja enne pööret täitekäsu.
+        const baseImmediateDist = Math.max(55, Math.min(115, (speedMps || 0) * 4.2));
+        const hasShortLeg = Number.isFinite(legLenM) && legLenM > 0 && legLenM < 180;
+        const immediateDist = hasShortLeg
+          ? Math.max(40, Math.min(baseImmediateDist, legLenM * 0.48))
+          : baseImmediateDist;
 
-        // 3) Häälkäsklus vahetult enne pööret (kõrgeim prioriteet — nt "Nüüd pööra vasakule.")
+        // 3) Täitekäsk vahetult enne pööret (kõrgeim prioriteet — nt "Nüüd pööra vasakule.")
         if (distToTurn <= immediateDist && distToTurn > 12 && !state.announcedPrompts.has(nowKey)) {
           state.announcedPrompts.add(nowKey);
           state.announcedPrompts.add(warnKey);
@@ -6619,8 +6634,8 @@
           return;
         }
 
-        // 2) Eelnev pööramise hoiatus ~300 m enne pöördekohta
-        if (distToTurn <= 325 && distToTurn > immediateDist + 20 && !state.announcedPrompts.has(warnKey)) {
+        // 2) Eelkäsk / hoiatus enne pööret (~300 m, või lühikesel lõigul kohe peale eelmist pööret nt 100 m)
+        if (distToTurn <= 325 && distToTurn > immediateDist + 12 && !state.announcedPrompts.has(warnKey)) {
           state.announcedPrompts.add(warnKey);
           state.announcedPrompts.add(earlyKey);
           const msg = buildVoiceInstruction(step, "warn_300m", distToTurn);
@@ -6628,8 +6643,10 @@
           return;
         }
 
-        // 1) Esmane hoiatus 1 km enne pööret (koos rea vahetuse juhisega vajadusel)
-        if (distToTurn <= 1050 && distToTurn > 480 && !state.announcedPrompts.has(earlyKey)) {
+        // 1) Esmane 1 km hoiatus AINULT siis, kui pöördeni on päriselt ~1 km (850–1080 m)
+        //    ning eelnev teelõik on vähemalt 850 m (lühikeste ja järjestikuste pöörete puhul 1 km hoiatust ei loeta)
+        const legAllows1km = !Number.isFinite(legLenM) || legLenM >= 850;
+        if (legAllows1km && distToTurn <= 1080 && distToTurn >= 850 && !state.announcedPrompts.has(earlyKey)) {
           state.announcedPrompts.add(earlyKey);
           const msg = buildVoiceInstruction(step, "early_1km", distToTurn);
           speakNavigationPrompt(msg, true, false);
