@@ -1025,7 +1025,10 @@
         offRoute: false,
         offRouteHits: 0,
         offRouteSinceMs: 0,
-        lastChimeKey: null
+        lastChimeKey: null,
+        announcedPrompts: new Set(),
+        voiceUnlocked: false,
+        audioCtx: null
       };
 
       function nowStr() { return new Date().toLocaleTimeString("et-EE"); }
@@ -4121,7 +4124,8 @@
             steps.push({
               lat: pt.lat, lon: pt.lon, geomIdx: gIdx,
               type: mapped.type, modifier: mapped.modifier, exit: mapped.exit, name: mapped.name,
-              branchBearings: []
+              branchBearings: [],
+              laneSide: null
             });
           }
         }
@@ -4177,6 +4181,7 @@
             }
             idxCursor = bestIdx;
             const branchBearings = [];
+            let laneSide = null;
             if (Array.isArray(s.intersections) && s.intersections.length > 0) {
               const inter = s.intersections[0];
               const bearings = Array.isArray(inter.bearings) ? inter.bearings : [];
@@ -4186,6 +4191,20 @@
                 if (bi === inIdx || bi === outIdx) continue;
                 if (Number.isFinite(bearings[bi])) branchBearings.push(bearings[bi]);
               }
+              if (Array.isArray(inter.lanes) && inter.lanes.length >= 2) {
+                const validIdx = [];
+                for (let lni = 0; lni < inter.lanes.length; lni++) {
+                  if (inter.lanes[lni] && inter.lanes[lni].valid) validIdx.push(lni);
+                }
+                if (validIdx.length > 0 && validIdx.length < inter.lanes.length) {
+                  const firstV = validIdx[0];
+                  const lastV = validIdx[validIdx.length - 1];
+                  const totalL = inter.lanes.length;
+                  if (firstV === 0 && lastV < totalL - 1) laneSide = "left";
+                  else if (lastV === totalL - 1 && firstV > 0) laneSide = "right";
+                  else if (firstV > 0 && lastV < totalL - 1) laneSide = "center";
+                }
+              }
             }
             steps.push({
               lat: loc.lat, lon: loc.lon, geomIdx: bestIdx,
@@ -4193,7 +4212,8 @@
               modifier: (s.maneuver && s.maneuver.modifier) || "",
               exit: (s.maneuver && s.maneuver.exit) || null,
               name: s.name || "",
-              branchBearings
+              branchBearings,
+              laneSide
             });
           }
         }
@@ -4402,6 +4422,7 @@
           state.offRouteHits = 0;
           state.offRouteSinceMs = 0;
           state.lastChimeKey = null;
+          state.announcedPrompts.clear();
           state.gps.blendOffsetLat = 0;
           state.gps.blendOffsetLon = 0;
           state.gps.blendStartMs = 0;
@@ -4476,6 +4497,10 @@
           el.turnDesc.textContent = "Oled sihtkohas";
           el.turnStreet.textContent = state.destination.name;
           renderManeuverIcon("arrive");
+          if (!state.announcedPrompts.has("arrived")) {
+            state.announcedPrompts.add("arrived");
+            speakNavigationPrompt("Oled sihtkohas.", true, true);
+          }
         } else {
           const soonDist = Math.max(200, Math.min(350, (speedMps || 0) * 10));
           el.turnDist.textContent = formatDistance(distToTurn);
@@ -4483,12 +4508,7 @@
           el.turnDesc.textContent = translateManeuver(step);
           el.turnStreet.textContent = step.name || state.destination.name;
           renderManeuverIcon(getIconKey(step));
-          const chimeDist = Math.max(180, Math.min(350, (speedMps || 0) * 10));
-          const key = `${nextIdx}_200`;
-          if (distToTurn <= chimeDist && distToTurn > 30 && state.lastChimeKey !== key) {
-            state.lastChimeKey = key;
-            playTurnChime();
-          }
+          checkVoiceTurnPrompts(step, nextIdx, distToTurn);
         }
         el.remDistVal.textContent = formatDistance(remDist);
         el.etaVal.textContent = formatDuration(remSec);
@@ -6373,12 +6393,25 @@
 
       /* ===================== ABI & SÜNDMUSED ===================== */
 
+      function getSharedAudioCtx() {
+        try {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return null;
+          if (!state.audioCtx) state.audioCtx = new AC();
+          if (state.audioCtx.state === "suspended") {
+            state.audioCtx.resume().catch(() => {});
+          }
+          return state.audioCtx;
+        } catch (_) {
+          return null;
+        }
+      }
+
       function playTurnChime() {
         if (!state.soundOn) return;
         try {
-          const AC = window.AudioContext || window.webkitAudioContext;
-          if (!AC) return;
-          const ctx = new AC();
+          const ctx = getSharedAudioCtx();
+          if (!ctx) return;
           const now = ctx.currentTime;
           [880, 1175].forEach((f, i) => {
             const o = ctx.createOscillator(), g = ctx.createGain();
@@ -6394,9 +6427,8 @@
       function playShortConfirmBeep() {
         if (!state.soundOn) return;
         try {
-          const AC = window.AudioContext || window.webkitAudioContext;
-          if (!AC) return;
-          const ctx = new AC();
+          const ctx = getSharedAudioCtx();
+          if (!ctx) return;
           const now = ctx.currentTime;
           const o = ctx.createOscillator(), g = ctx.createGain();
           o.frequency.setValueAtTime(1046, now);
@@ -6405,6 +6437,184 @@
           o.connect(g); g.connect(ctx.destination);
           o.start(now); o.stop(now + 0.1);
         } catch (_) {}
+      }
+
+      /* ===================== HÄÄLJUHTIMISKÄSKLUSED (1 KM + 300 M) ===================== */
+
+      let cachedEstonianVoice = null;
+      let voiceSpeakTimer = null;
+
+      function pickEstonianVoice() {
+        if (cachedEstonianVoice) return cachedEstonianVoice;
+        if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
+        try {
+          const voices = window.speechSynthesis.getVoices() || [];
+          if (!voices.length) return null;
+          const exactEt = voices.find((v) => v.lang && v.lang.toLowerCase() === "et-ee");
+          const anyEt = exactEt || voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("et"));
+          if (anyEt) cachedEstonianVoice = anyEt;
+          return cachedEstonianVoice;
+        } catch (_) {
+          return null;
+        }
+      }
+
+      function unlockVoiceAudio() {
+        if (state.voiceUnlocked) return;
+        state.voiceUnlocked = true;
+        getSharedAudioCtx();
+        if (typeof window !== "undefined" && "speechSynthesis" in window) {
+          try {
+            pickEstonianVoice();
+            if (typeof SpeechSynthesisUtterance !== "undefined") {
+              const u = new SpeechSynthesisUtterance("");
+              u.lang = "et-EE";
+              u.volume = 0;
+              window.speechSynthesis.speak(u);
+            }
+          } catch (_) {}
+        }
+      }
+
+      function stopVoiceSpeech() {
+        if (voiceSpeakTimer) {
+          clearTimeout(voiceSpeakTimer);
+          voiceSpeakTimer = null;
+        }
+        if (typeof window !== "undefined" && "speechSynthesis" in window) {
+          try { window.speechSynthesis.cancel(); } catch (_) {}
+        }
+      }
+
+      function isVoiceWorthyStep(step) {
+        if (!step) return false;
+        const t = step.type || "";
+        if (t === "depart") return false;
+        if (t === "arrive") return true;
+        if (t === "continue" || t === "new name" || t === "notification") {
+          const m = step.modifier || "";
+          return Boolean(step.laneSide) || (Boolean(m) && m !== "straight");
+        }
+        return true;
+      }
+
+      function formatSpokenRoundaboutExit(exitNum) {
+        const ordinals = {
+          1: "esimene", 2: "teine", 3: "kolmas", 4: "neljas",
+          5: "viies", 6: "kuues", 7: "seitsmes", 8: "kaheksas"
+        };
+        return ordinals[exitNum] || `${exitNum}.`;
+      }
+
+      function getLaneChangeVoiceHint(step) {
+        if (!step || step.type === "arrive") return "";
+        if (step.laneSide === "left") return "võta vasakusse ritta";
+        if (step.laneSide === "right") return "võta paremasse ritta";
+        if (step.laneSide === "center") return "hoia keskmisesse ritta";
+        const t = step.type || "";
+        const m = step.modifier || "";
+        if (m === "left" || m === "sharp left" || m === "uturn") {
+          return "vajadusel reastu vasakule";
+        }
+        if ((t === "off ramp" || t === "fork") && (m === "right" || m === "sharp right" || m === "slight right")) {
+          return "vajadusel reastu paremale";
+        }
+        if ((t === "off ramp" || t === "fork") && m === "slight left") {
+          return "vajadusel reastu vasakule";
+        }
+        return "";
+      }
+
+      function speakableManeuverAction(step, isFinal) {
+        if (!step) return "sõida otse";
+        const t = step.type || "";
+        const m = step.modifier || "";
+        if (t === "arrive") return isFinal ? "oled sihtkohas" : "jõuad sihtkohta";
+        if (t === "roundabout" || t === "rotary" || t === "roundabout turn") {
+          return step.exit ? `ringteelt ${formatSpokenRoundaboutExit(step.exit)} mahasõit` : "ringteelt maha";
+        }
+        if (m === "uturn") return "tee tagasipööre";
+        if (m === "sharp left") return "järsk pööre vasakule";
+        if (m === "sharp right") return "järsk pööre paremale";
+        if (m === "left") return "pööra vasakule";
+        if (m === "right") return "pööra paremale";
+        if (m === "slight left") return "hoia vasakule";
+        if (m === "slight right") return "hoia paremale";
+        if (t === "off ramp") return "võta mahasõit";
+        return "sõida otse";
+      }
+
+      function buildVoiceInstruction(step, stage, distM) {
+        if (!step) return "";
+        if (stage === "early_1km") {
+          const action = speakableManeuverAction(step, false);
+          const laneHint = getLaneChangeVoiceHint(step);
+          return laneHint
+            ? `Ühe kilomeetri pärast ${action}, ${laneHint}.`
+            : `Ühe kilomeetri pärast ${action}.`;
+        }
+        const action = speakableManeuverAction(step, true);
+        let distPrefix = "Kolmesaja meetri pärast";
+        if (Number.isFinite(distM)) {
+          if (distM <= 125) distPrefix = "Saja meetri pärast";
+          else if (distM <= 225) distPrefix = "Kahesaja meetri pärast";
+        }
+        return `${distPrefix} ${action}.`;
+      }
+
+      function speakNavigationPrompt(text, withChime, interrupt) {
+        if (!state.soundOn || !text) return;
+        addLog(`Hääl: ${text}`);
+        if (withChime) playTurnChime();
+        if (typeof window === "undefined" || !("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+          return;
+        }
+        const runSpeak = () => {
+          voiceSpeakTimer = null;
+          if (!state.soundOn) return;
+          try {
+            if (interrupt) window.speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(text);
+            u.lang = "et-EE";
+            const etVoice = pickEstonianVoice();
+            if (etVoice) u.voice = etVoice;
+            u.rate = 1.0;
+            u.pitch = 1.0;
+            u.volume = 1.0;
+            window.speechSynthesis.speak(u);
+          } catch (_) {}
+        };
+        if (voiceSpeakTimer) {
+          clearTimeout(voiceSpeakTimer);
+          voiceSpeakTimer = null;
+        }
+        if (withChime) {
+          voiceSpeakTimer = setTimeout(runSpeak, 240);
+        } else {
+          runSpeak();
+        }
+      }
+
+      function checkVoiceTurnPrompts(step, nextIdx, distToTurn) {
+        if (!state.soundOn || !step || !isVoiceWorthyStep(step)) return;
+        const earlyKey = `${nextIdx}_1000`;
+        const finalKey = `${nextIdx}_300`;
+
+        // 1) Esmane hoiatus 1 km enne pööret (koos rea vahetuse juhisega vajadusel)
+        if (distToTurn <= 1050 && distToTurn > 480 && !state.announcedPrompts.has(earlyKey)) {
+          state.announcedPrompts.add(earlyKey);
+          const msg = buildVoiceInstruction(step, "early_1km", distToTurn);
+          speakNavigationPrompt(msg, true, false);
+          return;
+        }
+
+        // 2) Viimane pööramise hoiatus vahetult enne pöördekohta (~300 m)
+        if (distToTurn <= 325 && distToTurn > 35 && !state.announcedPrompts.has(finalKey)) {
+          state.announcedPrompts.add(finalKey);
+          state.announcedPrompts.add(earlyKey);
+          const msg = buildVoiceInstruction(step, "final_300m", distToTurn);
+          speakNavigationPrompt(msg, true, true);
+        }
       }
 
       async function toggleWakeLock() {
@@ -6739,6 +6949,8 @@
         setWaypointPickMode(false);
         el.results.classList.remove("open");
         state.destination = null; state.waypoints = []; state.route = null;
+        state.announcedPrompts.clear();
+        stopVoiceSpeech();
         updateWaypointBadge();
         state.riderProj = null; state.liveRiderProj = null;
         state.offRoute = false; state.offRouteHits = 0; state.offRouteSinceMs = 0;
@@ -6757,7 +6969,7 @@
         state.mode = state.mode === "route" ? "compass" : "route";
         el.modeBtn.textContent = state.mode === "route" ? "TEEKOND" : "KOMPASS";
         if (state.mode === "compass") {
-          el.roadsStatus.textContent = "Kompass: ainult põhitee";
+          el.roadsStatus.textContent = "Kompass: põhitee + ristmikud";
         } else if (!state.pois.activeCatId) {
           el.roadsStatus.textContent = getActiveBaseMap().shortStatus;
         }
@@ -6783,8 +6995,24 @@
       el.soundBtn.addEventListener("click", () => {
         state.soundOn = !state.soundOn;
         el.soundBtn.classList.toggle("active", state.soundOn);
-        if (state.soundOn) playTurnChime();
+        if (state.soundOn) {
+          state.voiceUnlocked = true;
+          getSharedAudioCtx();
+          speakNavigationPrompt("Hääljuhtimine sees.", true, true);
+        } else {
+          stopVoiceSpeech();
+        }
       });
+      window.addEventListener("pointerdown", unlockVoiceAudio, { once: true, passive: true });
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        try {
+          pickEstonianVoice();
+          window.speechSynthesis.addEventListener("voiceschanged", () => {
+            cachedEstonianVoice = null;
+            pickEstonianVoice();
+          });
+        } catch (_) {}
+      }
       el.wakeBtn.addEventListener("click", toggleWakeLock);
       el.startGpsDirectBtn.addEventListener("click", () => startGps(false));
       el.startNetGpsBtn.addEventListener("click", () => startGps(true));
