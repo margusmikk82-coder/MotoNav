@@ -853,14 +853,27 @@
         },
         {
           id: "food", label: "Söögikohad", code: "S", color: "#ff9800",
+          includeCafeVerified: true,
           overpass: [
             '["amenity"~"^(restaurant|cafe|fast_food|pub|bar|biergarten|food_court|bistro|ice_cream)$"]',
-            '["shop"~"^(bakery|pastry|coffee)$"]'
+            '["shop"~"^(bakery|pastry|coffee|confectionery|tea)$"]'
           ],
           photonTags: ["amenity:restaurant", "amenity:cafe", "amenity:fast_food", "amenity:pub", "amenity:bar"],
-          photonQueries: ["restoran", "kohvik", "pubi", "bistroo", "pizza", "burger", "sushi", "pagar", "trahter", "Hesburger"],
-          nominatimTerms: ["restoran", "kohvik", "pubi", "pizza", "bistroo"],
-          matchValues: ["restaurant", "cafe", "fast_food", "pub", "bar", "biergarten", "food_court", "bistro", "ice_cream", "bakery", "pastry", "coffee"]
+          photonQueries: ["restoran", "kohvik", "cafe", "pubi", "bistroo", "pizza", "burger", "sushi", "pagar", "kondiiter", "trahter", "Hesburger", "Reval Cafe", "Gustav"],
+          nominatimTerms: ["restoran", "kohvik", "pubi", "pizza", "bistroo", "pagarikoda"],
+          matchValues: ["restaurant", "cafe", "fast_food", "pub", "bar", "biergarten", "food_court", "bistro", "ice_cream", "bakery", "pastry", "coffee", "confectionery", "tea"]
+        },
+        {
+          id: "cafe", label: "Kohvikud", code: "K", color: "#c084fc",
+          overpass: [
+            '["amenity"~"^(cafe|ice_cream)$"]',
+            '["shop"~"^(bakery|pastry|coffee|confectionery|tea)$"]',
+            '["cuisine"~"coffee_shop|cake|pastry",i]'
+          ],
+          photonTags: ["amenity:cafe", "shop:bakery", "shop:pastry", "shop:coffee", "shop:confectionery"],
+          photonQueries: ["kohvik", "cafe", "pagar", "pagarikoda", "kondiiter", "coffee", "kohvituba", "teemaja", "Reval Cafe", "Caffeine", "Gustav", "Ristikheina", "Pihlaka"],
+          nominatimTerms: ["kohvik", "cafe", "pagarikoda", "kondiiter", "kohvipood"],
+          matchValues: ["cafe", "bakery", "pastry", "coffee", "confectionery", "tea", "ice_cream"]
         },
         {
           id: "sleep", label: "Majutus", code: "M", color: "#29b6f6",
@@ -875,61 +888,306 @@
         }
       ];
 
-      // Võrdlusmeetodil (Google Maps + VisitVõru + Tanklad.ee + Booking + Maa- ja Ruumiamet In-ADS)
-      // kontrollitud Eesti huvipunktide baasnimistu — alustades Võru linnast ja lähiümbrusest.
+      // Võrdlusmeetodil (Google Maps + VisitEstonia / piirkondlikud turismiportaalid + Tanklad.ee + Maa- ja Ruumiamet In-ADS)
+      // kontrollitud üleriigiline Eesti huvipunktide baasnimistu (kõik 15 maakonda, sh eraldi kohvikud).
+      // Formaat: [id, catId, name, officialAddrForInAds, subLabel, baselineLat, baselineLon]
       const EE_VERIFIED_POIS = [
-        // --- VÕRU LINN: TANKLAD (8) ---
-        { id: "ee_voru_f1", catId: "fuel", name: "Circle K Võru Kesklinna", addr: "Jüri tn 45, Võru linn", sub: "Jüri tn 45, Võru · 24/7", lat: 57.8390, lon: 27.0063 },
-        { id: "ee_voru_f2", catId: "fuel", name: "Circle K Võru Pikk tn Automaat", addr: "Pikk tn 21a, Võru linn", sub: "Pikk tn 21a, Võru · 24/7 automaat", lat: 57.8390, lon: 27.0225 },
-        { id: "ee_voru_f3", catId: "fuel", name: "Olerex Võru Räpina mnt", addr: "Räpina mnt 18, Võru linn", sub: "Räpina mnt 18, Võru · 95/98/D", lat: 57.8501, lon: 27.0170 },
-        { id: "ee_voru_f4", catId: "fuel", name: "Olerex Võru Tallinna mnt", addr: "Tallinna mnt 38, Võru linn", sub: "Tallinna mnt 38, Võru · 24/7 · LPG", lat: 57.8588, lon: 26.9896 },
-        { id: "ee_voru_f5", catId: "fuel", name: "Terminal Oil Võru", addr: "Räpina mnt 11, Võru linn", sub: "Räpina mnt 11, Võru · 24/7 · pood", lat: 57.8485, lon: 27.0114 },
-        { id: "ee_voru_f6", catId: "fuel", name: "Neste Express Võru (Jüri)", addr: "Jüri tn 83a, Võru linn", sub: "Jüri tn 83a, Võru · 24/7 · 95/98/D", lat: 57.8321, lon: 27.0132 },
-        { id: "ee_voru_f7", catId: "fuel", name: "Neste Express Võru D", addr: "Pikk tn 6, Võru linn", sub: "Pikk tn 6, Võru · 24/7 · Diisel", lat: 57.8435, lon: 27.0145 },
-        { id: "ee_voru_f8", catId: "fuel", name: "Alexela Võru", addr: "Kose tee 6, Võru linn", sub: "Kose tee 6, Võru · 95/98/D/LPG/CNG", lat: 57.8240, lon: 27.0270 },
+        // ==================== 1. VÕRUMAA (46) ====================
+        ["ee_voru_f1",  "fuel",  "Circle K Võru Kesklinna", "Jüri tn 45, Võru linn", "Jüri tn 45, Võru · 24/7", 57.8390, 27.0063],
+        ["ee_voru_f2",  "fuel",  "Circle K Võru Pikk tn Automaat", "Pikk tn 21a, Võru linn", "Pikk tn 21a, Võru · 24/7 automaat", 57.8390, 27.0225],
+        ["ee_voru_f3",  "fuel",  "Olerex Võru Räpina mnt", "Räpina mnt 18, Võru linn", "Räpina mnt 18, Võru · 95/98/D", 57.8501, 27.0170],
+        ["ee_voru_f4",  "fuel",  "Olerex Võru Tallinna mnt", "Tallinna mnt 38, Võru linn", "Tallinna mnt 38, Võru · 24/7 · LPG", 57.8588, 26.9896],
+        ["ee_voru_f5",  "fuel",  "Terminal Oil Võru", "Räpina mnt 11, Võru linn", "Räpina mnt 11, Võru · 24/7 · pood", 57.8485, 27.0114],
+        ["ee_voru_f6",  "fuel",  "Neste Express Võru (Jüri)", "Jüri tn 83a, Võru linn", "Jüri tn 83a, Võru · 24/7 · 95/98/D", 57.8321, 27.0132],
+        ["ee_voru_f7",  "fuel",  "Neste Express Võru D", "Pikk tn 6, Võru linn", "Pikk tn 6, Võru · 24/7 · Diisel", 57.8435, 27.0145],
+        ["ee_voru_f8",  "fuel",  "Alexela Võru", "Kose tee 6, Võru linn", "Kose tee 6, Võru · 95/98/D/LPG/CNG", 57.8240, 27.0270],
+        ["ee_voru_c1",  "cafe",  "Katariina Kohvik", "Katariina allee 4, Võru linn", "Katariina allee 4, Võru", 57.8468, 26.9958],
+        ["ee_voru_c2",  "cafe",  "Kohvik Mantelahi", "Vabaduse tn 7, Võru linn", "Vabaduse tn 7, Võru", 57.8446, 26.9992],
+        ["ee_voru_c3",  "cafe",  "Spring Cafe", "Petseri tn 20, Võru linn", "Petseri tn 20, Võru", 57.8390, 27.0005],
+        ["ee_voru_c4",  "cafe",  "Kohvik Pannukas", "Jüri tn 32a, Võru linn", "Jüri tn 32a, Võru", 57.8419, 27.0036],
+        ["ee_voru_c5",  "cafe",  "Koidula Kohvik", "F. R. Kreutzwaldi tn 42, Võru linn", "F. R. Kreutzwaldi tn 42, Võru", 57.8407, 27.0015],
+        ["ee_voru_c6",  "cafe",  "Kohvik Soopärl", "F. R. Kreutzwaldi tn 106, Võru linn", "F. R. Kreutzwaldi tn 106, Võru", 57.8295, 27.0110],
+        ["ee_voru_s1",  "food",  "Pubi nr. 17", "Jüri tn 17, Võru linn", "Jüri tn 17, Võru", 57.84567, 26.99986],
+        ["ee_voru_s2",  "food",  "Ränduri Pubi", "Jüri tn 36, Võru linn", "Jüri tn 36, Võru", 57.8410, 27.0044],
+        ["ee_voru_s3",  "food",  "Mõisa Ait Pubi", "Jüri tn 20c, Võru linn", "Jüri tn 20c, Võru", 57.8450, 27.0007],
+        ["ee_voru_s4",  "food",  "Kolm. Restoran", "Jüri tn 26, Võru linn", "Jüri tn 26, Võru", 57.8435, 27.0021],
+        ["ee_voru_s6",  "food",  "Stedingu Maja - Resto & Kohtumispaik", "F. R. Kreutzwaldi tn 15, Võru linn", "F. R. Kreutzwaldi tn 15, Võru", 57.8461, 26.9968],
+        ["ee_voru_s8",  "food",  "Pizza Olive", "Seminari tn 5, Võru linn", "Seminari tn 5, Võru", 57.8482, 26.9968],
+        ["ee_voru_s10", "food",  "Eva Sushi Võru", "Vabaduse tn 12a, Võru linn", "Vabaduse tn 12a, Võru", 57.8453, 27.0020],
+        ["ee_voru_s12", "food",  "TOJ Sushi", "Jüri tn 22a, Võru linn", "Jüri tn 22a, Võru", 57.8442, 27.0014],
+        ["ee_voru_s13", "food",  "Tandoori House", "Seminari tn 3, Võru linn", "Seminari tn 3, Võru", 57.8484, 26.9973],
+        ["ee_voru_s14", "food",  "Indigo Grill & Curry", "F. R. Kreutzwaldi tn 52, Võru linn", "F. R. Kreutzwaldi tn 52, Võru", 57.8391, 27.0032],
+        ["ee_voru_s15", "food",  "Võru Namaste - Aasia restoran", "Kooli tn 6, Võru linn", "Kooli tn 6 (Kagukeskus), Võru", 57.8447, 27.0098],
+        ["ee_voru_s16", "food",  "Kebab Tarõ", "Kooli tn 6, Võru linn", "Kooli tn 6 (Kagukeskus), Võru", 57.8448, 27.0101],
+        ["ee_voru_s17", "food",  "Võru Pizzakiosk", "Kooli tn 6, Võru linn", "Kooli tn 6 (Kagukeskus), Võru", 57.8446, 27.0095],
+        ["ee_voru_s18", "food",  "Hesburger Võru", "Jüri tn 83, Võru linn", "Jüri tn 83, Võru", 57.8324, 27.0126],
+        ["ee_voru_s19", "food",  "Peetri Pizza Võru", "Jüri tn 85, Võru linn", "Jüri tn 85, Võru", 57.8318, 27.0133],
+        ["ee_voru_s20", "food",  "Jaagumäe Toidukeskus", "F. R. Kreutzwaldi tn 27, Võru linn", "F. R. Kreutzwaldi tn 27, Võru", 57.8439, 26.9988],
+        ["ee_voru_s22", "food",  "Kubija Hotell-Loodusspaa Restoran", "Männiku tn 43a, Võru linn", "Männiku tn 43a, Võru", 57.8172, 27.0018],
+        ["ee_voru_s24", "food",  "Hämsa Maheresto", "Andsujärve tee 11, Meegomäe küla", "Andsujärve tee 11, Meegomäe", 57.8075, 27.0265],
+        ["ee_voru_s25", "food",  "Väimela Maitsed", "Põlva tee 9, Väimela alevik", "Põlva tee 9, Väimela", 57.8935, 27.0110],
+        ["ee_voru_m1",  "sleep", "Georgi Hotell", "Jüri tn 38a, Võru linn", "Jüri tn 38a, Võru", 57.8405, 27.0049],
+        ["ee_voru_m2",  "sleep", "Hotell Tamula", "Vee tn 4, Võru linn", "Vee tn 4, Võru", 57.8453, 26.9912],
+        ["ee_voru_m3",  "sleep", "Kubija Hotell-Loodusspaa", "Männiku tn 43a, Võru linn", "Männiku tn 43a, Võru", 57.8172, 27.0018],
+        ["ee_voru_m4",  "sleep", "Ränduri Külalistemaja", "Jüri tn 36, Võru linn", "Jüri tn 36, Võru", 57.8410, 27.0044],
+        ["ee_voru_m5",  "sleep", "Mõisa Ait Külalistemaja", "Jüri tn 20c, Võru linn", "Jüri tn 20c, Võru", 57.8450, 27.0007],
+        ["ee_voru_m6",  "sleep", "Kagu Hostel", "Räpina mnt 7a, Võru linn", "Räpina mnt 7a, Võru", 57.8473, 27.0067],
+        ["ee_voru_m7",  "sleep", "TAEVAS Külalistemaja", "Katariina allee 6b/1, Võru linn", "Katariina allee 6b/1, Võru", 57.8463, 26.9949],
+        ["ee_voru_m8",  "sleep", "Hermes Külalistemaja", "Jüri tn 32a, Võru linn", "Jüri tn 32a, Võru", 57.8419, 27.0036],
+        ["ee_voru_m9",  "sleep", "Uma Kuup Külaliskorterid", "L. Koidula tn 6, Võru linn", "L. Koidula tn 6, Võru", 57.8477, 26.9936],
+        ["ee_voru_m10", "sleep", "Puhkekodu nr. 17", "Jüri tn 17, Võru linn", "Jüri tn 17, Võru", 57.84567, 26.99986],
+        ["ee_voru_m11", "sleep", "Freinholdi Maja Külaliskorterid", "F. R. Kreutzwaldi tn 52, Võru linn", "F. R. Kreutzwaldi tn 52, Võru", 57.8391, 27.0032],
+        ["ee_voru_m12", "sleep", "Hämsaare Puhketalu & Karavanipark", "Andsujärve tee 11, Meegomäe küla", "Andsujärve tee 11, Meegomäe", 57.8075, 27.0265],
+        ["ee_voru_m13", "sleep", "Hämsaare Külalistemaja", "Andsujärve tee 19, Meegomäe küla", "Andsujärve tee 19, Meegomäe", 57.8070, 27.0274],
 
-        // --- VÕRU LINN & LÄHIÜMBRUS: SÖÖGIKOHAD (25) ---
-        { id: "ee_voru_s1",  catId: "food", name: "Pubi nr. 17", addr: "Jüri tn 17, Võru linn", sub: "Jüri tn 17, Võru", lat: 57.84567, lon: 26.99986 },
-        { id: "ee_voru_s2",  catId: "food", name: "Ränduri Pubi", addr: "Jüri tn 36, Võru linn", sub: "Jüri tn 36, Võru", lat: 57.8410, lon: 27.0044 },
-        { id: "ee_voru_s3",  catId: "food", name: "Mõisa Ait Pubi", addr: "Jüri tn 20c, Võru linn", sub: "Jüri tn 20c, Võru", lat: 57.8450, lon: 27.0007 },
-        { id: "ee_voru_s4",  catId: "food", name: "Kolm. Restoran", addr: "Jüri tn 26, Võru linn", sub: "Jüri tn 26, Võru", lat: 57.8435, lon: 27.0021 },
-        { id: "ee_voru_s5",  catId: "food", name: "Katariina Kohvik", addr: "Katariina allee 4, Võru linn", sub: "Katariina allee 4, Võru", lat: 57.8468, lon: 26.9958 },
-        { id: "ee_voru_s6",  catId: "food", name: "Stedingu Maja - Resto & Kohtumispaik", addr: "F. R. Kreutzwaldi tn 15, Võru linn", sub: "F. R. Kreutzwaldi tn 15, Võru", lat: 57.8461, lon: 26.9968 },
-        { id: "ee_voru_s7",  catId: "food", name: "Kohvik Mantelahi", addr: "Vabaduse tn 7, Võru linn", sub: "Vabaduse tn 7, Võru", lat: 57.8446, lon: 26.9992 },
-        { id: "ee_voru_s8",  catId: "food", name: "Pizza Olive", addr: "Seminari tn 5, Võru linn", sub: "Seminari tn 5, Võru", lat: 57.8482, lon: 26.9968 },
-        { id: "ee_voru_s9",  catId: "food", name: "Spring Cafe", addr: "Petseri tn 20, Võru linn", sub: "Petseri tn 20, Võru", lat: 57.8390, lon: 27.0005 },
-        { id: "ee_voru_s10", catId: "food", name: "Eva Sushi Võru", addr: "Vabaduse tn 12a, Võru linn", sub: "Vabaduse tn 12a, Võru", lat: 57.8453, lon: 27.0020 },
-        { id: "ee_voru_s11", catId: "food", name: "Kohvik Pannukas", addr: "Jüri tn 32a, Võru linn", sub: "Jüri tn 32a, Võru", lat: 57.8419, lon: 27.0036 },
-        { id: "ee_voru_s12", catId: "food", name: "TOJ Sushi", addr: "Jüri tn 22a, Võru linn", sub: "Jüri tn 22a, Võru", lat: 57.8442, lon: 27.0014 },
-        { id: "ee_voru_s13", catId: "food", name: "Tandoori House", addr: "Seminari tn 3, Võru linn", sub: "Seminari tn 3, Võru", lat: 57.8484, lon: 26.9973 },
-        { id: "ee_voru_s14", catId: "food", name: "Indigo Grill & Curry", addr: "F. R. Kreutzwaldi tn 52, Võru linn", sub: "F. R. Kreutzwaldi tn 52, Võru", lat: 57.8391, lon: 27.0032 },
-        { id: "ee_voru_s15", catId: "food", name: "Võru Namaste - Aasia restoran", addr: "Kooli tn 6, Võru linn", sub: "Kooli tn 6 (Kagukeskus), Võru", lat: 57.8447, lon: 27.0098 },
-        { id: "ee_voru_s16", catId: "food", name: "Kebab Tarõ", addr: "Kooli tn 6, Võru linn", sub: "Kooli tn 6 (Kagukeskus), Võru", lat: 57.8448, lon: 27.0101 },
-        { id: "ee_voru_s17", catId: "food", name: "Võru Pizzakiosk", addr: "Kooli tn 6, Võru linn", sub: "Kooli tn 6 (Kagukeskus), Võru", lat: 57.8446, lon: 27.0095 },
-        { id: "ee_voru_s18", catId: "food", name: "Hesburger Võru", addr: "Jüri tn 83, Võru linn", sub: "Jüri tn 83, Võru", lat: 57.8324, lon: 27.0126 },
-        { id: "ee_voru_s19", catId: "food", name: "Peetri Pizza Võru", addr: "Jüri tn 85, Võru linn", sub: "Jüri tn 85, Võru", lat: 57.8318, lon: 27.0133 },
-        { id: "ee_voru_s20", catId: "food", name: "Jaagumäe Toidukeskus", addr: "F. R. Kreutzwaldi tn 27, Võru linn", sub: "F. R. Kreutzwaldi tn 27, Võru", lat: 57.8439, lon: 26.9988 },
-        { id: "ee_voru_s21", catId: "food", name: "Koidula Kohvik", addr: "F. R. Kreutzwaldi tn 42, Võru linn", sub: "F. R. Kreutzwaldi tn 42, Võru", lat: 57.8407, lon: 27.0015 },
-        { id: "ee_voru_s22", catId: "food", name: "Kubija Hotell-Loodusspaa Restoran", addr: "Männiku tn 43a, Võru linn", sub: "Männiku tn 43a, Võru", lat: 57.8172, lon: 27.0018 },
-        { id: "ee_voru_s23", catId: "food", name: "Kohvik Soopärl", addr: "F. R. Kreutzwaldi tn 106, Võru linn", sub: "F. R. Kreutzwaldi tn 106, Võru", lat: 57.8295, lon: 27.0110 },
-        { id: "ee_voru_s24", catId: "food", name: "Hämsa Maheresto", addr: "Andsujärve tee 11, Meegomäe küla", sub: "Andsujärve tee 11, Meegomäe", lat: 57.8075, lon: 27.0265 },
-        { id: "ee_voru_s25", catId: "food", name: "Väimela Maitsed", addr: "Põlva tee 9, Väimela alevik", sub: "Põlva tee 9, Väimela", lat: 57.8935, lon: 27.0110 },
+        // ==================== 2. PÕLVAMAA (8) ====================
+        ["ee_polva_f1", "fuel",  "Circle K Põlva", "Kesk tn 43, Põlva linn", "Kesk tn 43, Põlva · 24/7", 58.0532, 27.0540],
+        ["ee_polva_f2", "fuel",  "Olerex Põlva", "Tartu mnt 1b, Põlva linn", "Tartu mnt 1b, Põlva · 24/7 · LPG", 58.0592, 27.0570],
+        ["ee_polva_c1", "cafe",  "Tillu Kohvik", "Jaama tn 52, Põlva linn", "Jaama tn 52, Põlva · talupood & pagarikoda", 58.0622, 27.0725],
+        ["ee_polva_s1", "food",  "Pesa Hotelli Restoran", "Uus tn 5, Põlva linn", "Uus tn 5, Põlva", 58.0554, 27.0562],
+        ["ee_polva_s2", "food",  "Kiudoski Restoraan", "Tartu mnt 2, Räpina linn", "Tartu mnt 2, Räpina", 58.0982, 27.4622],
+        ["ee_polva_s3", "food",  "Puuriida Pubi", "Kooli tn 16, Räpina linn", "Kooli tn 16, Räpina", 58.0962, 27.4660],
+        ["ee_polva_m1", "sleep", "Pesa Hotell", "Uus tn 5, Põlva linn", "Uus tn 5, Põlva", 58.0554, 27.0562],
+        ["ee_polva_m2", "sleep", "Hotell Räpina", "Tartu mnt 2, Räpina linn", "Tartu mnt 2, Räpina", 58.0982, 27.4622],
 
-        // --- VÕRU LINN & LÄHIÜMBRUS: MAJUTUS (13) ---
-        { id: "ee_voru_m1",  catId: "sleep", name: "Georgi Hotell", addr: "Jüri tn 38a, Võru linn", sub: "Jüri tn 38a, Võru", lat: 57.8405, lon: 27.0049 },
-        { id: "ee_voru_m2",  catId: "sleep", name: "Hotell Tamula", addr: "Vee tn 4, Võru linn", sub: "Vee tn 4, Võru", lat: 57.8453, lon: 26.9912 },
-        { id: "ee_voru_m3",  catId: "sleep", name: "Kubija Hotell-Loodusspaa", addr: "Männiku tn 43a, Võru linn", sub: "Männiku tn 43a, Võru", lat: 57.8172, lon: 27.0018 },
-        { id: "ee_voru_m4",  catId: "sleep", name: "Ränduri Külalistemaja", addr: "Jüri tn 36, Võru linn", sub: "Jüri tn 36, Võru", lat: 57.8410, lon: 27.0044 },
-        { id: "ee_voru_m5",  catId: "sleep", name: "Mõisa Ait Külalistemaja", addr: "Jüri tn 20c, Võru linn", sub: "Jüri tn 20c, Võru", lat: 57.8450, lon: 27.0007 },
-        { id: "ee_voru_m6",  catId: "sleep", name: "Kagu Hostel", addr: "Räpina mnt 7a, Võru linn", sub: "Räpina mnt 7a, Võru", lat: 57.8473, lon: 27.0067 },
-        { id: "ee_voru_m7",  catId: "sleep", name: "TAEVAS Külalistemaja", addr: "Katariina allee 6b/1, Võru linn", sub: "Katariina allee 6b/1, Võru", lat: 57.8463, lon: 26.9949 },
-        { id: "ee_voru_m8",  catId: "sleep", name: "Hermes Külalistemaja", addr: "Jüri tn 32a, Võru linn", sub: "Jüri tn 32a, Võru", lat: 57.8419, lon: 27.0036 },
-        { id: "ee_voru_m9",  catId: "sleep", name: "Uma Kuup Külaliskorterid", addr: "L. Koidula tn 6, Võru linn", sub: "L. Koidula tn 6, Võru", lat: 57.8477, lon: 26.9936 },
-        { id: "ee_voru_m10", catId: "sleep", name: "Puhkekodu nr. 17", addr: "Jüri tn 17, Võru linn", sub: "Jüri tn 17, Võru", lat: 57.84567, lon: 26.99986 },
-        { id: "ee_voru_m11", catId: "sleep", name: "Freinholdi Maja Külaliskorterid", addr: "F. R. Kreutzwaldi tn 52, Võru linn", sub: "F. R. Kreutzwaldi tn 52, Võru", lat: 57.8391, lon: 27.0032 },
-        { id: "ee_voru_m12", catId: "sleep", name: "Hämsaare Puhketalu & Karavanipark", addr: "Andsujärve tee 11, Meegomäe küla", sub: "Andsujärve tee 11, Meegomäe", lat: 57.8075, lon: 27.0265 },
-        { id: "ee_voru_m13", catId: "sleep", name: "Hämsaare Külalistemaja", addr: "Andsujärve tee 19, Meegomäe küla", sub: "Andsujärve tee 19, Meegomäe", lat: 57.8070, lon: 27.0274 }
-      ];
+        // ==================== 3. VALGAMAA (9) ====================
+        ["ee_valga_f1", "fuel",  "Circle K Valga", "Pikk tn 1, Valga linn", "Pikk tn 1, Valga · 24/7", 57.7792, 26.0405],
+        ["ee_valga_f2", "fuel",  "Olerex Valga Automaat", "Transpordi tn 1, Valga linn", "Transpordi tn 1, Valga · 24/7", 57.7852, 26.0645],
+        ["ee_valga_c1", "cafe",  "Kohvik Läti Saatkond", "Kevade tn 4, Tõrva linn", "Kevade tn 4, Tõrva", 58.0038, 25.9262],
+        ["ee_valga_s1", "food",  "Hotell Metsise Restoran", "J. Kuperjanovi tn 63, Valga linn", "J. Kuperjanovi tn 63, Valga", 57.7812, 26.0502],
+        ["ee_valga_s2", "food",  "GMP Pühajärve Restoran", "Tennisevälja tn 1, Otepää linn", "Tennisevälja tn 1, Otepää", 58.0372, 26.4692],
+        ["ee_valga_s3", "food",  "Hotell Karupesa Restoran", "Tehvandi tn 1, Otepää linn", "Tehvandi tn 1, Otepää", 58.0522, 26.5005],
+        ["ee_valga_m1", "sleep", "Hotell Metsis", "J. Kuperjanovi tn 63, Valga linn", "J. Kuperjanovi tn 63, Valga", 57.7812, 26.0502],
+        ["ee_valga_m2", "sleep", "GMP Clubhotel Apartments", "Tennisevälja tn 1, Otepää linn", "Tennisevälja tn 1, Otepää", 58.0372, 26.4692],
+        ["ee_valga_m3", "sleep", "Hotell Karupesa", "Tehvandi tn 1, Otepää linn", "Tehvandi tn 1, Otepää", 58.0522, 26.5005],
+
+        // ==================== 4. TARTUMAA (30) ====================
+        ["ee_tartu_f1",  "fuel",  "Circle K Tartu Turu", "Turu tn 6, Tartu linn", "Turu tn 6, Tartu · 24/7", 58.3772, 26.7318],
+        ["ee_tartu_f2",  "fuel",  "Circle K Tartu Aardla", "Võru tn 81, Tartu linn", "Võru tn 81, Tartu", 58.3592, 26.7210],
+        ["ee_tartu_f3",  "fuel",  "Circle K Tartu Ravila Automaat", "Ravila tn 63, Tartu linn", "Ravila tn 63, Tartu · 24/7 automaat", 58.3822, 26.6902],
+        ["ee_tartu_c1",  "cafe",  "Kohvik-Restoran Werner", "Ülikooli tn 11, Tartu linn", "Ülikooli tn 11, Tartu · al 1895", 58.3806, 26.7212],
+        ["ee_tartu_c2",  "cafe",  "Gustav Cafe Tartu Kaubamaja", "Riia tn 1, Tartu linn", "Riia tn 1, Tartu", 58.3780, 26.7278],
+        ["ee_tartu_c3",  "cafe",  "Karlova Kohv (Tähe)", "Tähe tn 63, Tartu linn", "Tähe tn 63, Tartu · röstikoda & kohvik", 58.3665, 26.7295],
+        ["ee_tartu_c4",  "cafe",  "Karlova Kohv Raeplatsi", "Raekoja plats 1, Tartu linn", "Raekoja plats 1, Tartu", 58.3801, 26.7222],
+        ["ee_tartu_c5",  "cafe",  "Säde Kohviteek", "Rüütli tn 4, Tartu linn", "Rüütli tn 4, Tartu", 58.3808, 26.7228],
+        ["ee_tartu_c6",  "cafe",  "Tassikoogid Tartu", "Tähe tn 21, Tartu linn", "Tähe tn 21, Tartu", 58.3720, 26.7270],
+        ["ee_tartu_c7",  "cafe",  "Crepp", "Rüütli tn 16, Tartu linn", "Rüütli tn 16, Tartu", 58.3821, 26.7215],
+        ["ee_tartu_c8",  "cafe",  "V Café", "Riia tn 2, Tartu linn", "Riia tn 2 (Kvartal), Tartu", 58.3775, 26.7285],
+        ["ee_tartu_c9",  "cafe",  "Reval Cafe Tartu Riia mnt", "Riia tn 4, Tartu linn", "Riia tn 4, Tartu", 58.3772, 26.7272],
+        ["ee_tartu_c10", "cafe",  "Reval Cafe Tartu Paju", "Paju tn 2, Tartu linn", "Paju tn 2, Tartu", 58.3818, 26.7338],
+        ["ee_tartu_c11", "cafe",  "Kohvik Vaksali", "Vaksali tn 17a, Tartu linn", "Vaksali tn 17a, Tartu", 58.3742, 26.7065],
+        ["ee_tartu_c12", "cafe",  "Toome Kohvik", "K. E. von Baeri tn 6, Tartu linn", "K. E. von Baeri tn 6, Tartu", 58.3814, 26.7155],
+        ["ee_tartu_c13", "cafe",  "Kohvik Rotund", "Lossi tn 40, Tartu linn", "Lossi tn 40 (Toomemägi), Tartu", 58.3792, 26.7160],
+        ["ee_tartu_c14", "cafe",  "Kohvipaus Tartu", "Rüütli tn 8, Tartu linn", "Rüütli tn 8, Tartu", 58.3812, 26.7224],
+        ["ee_tartu_c15", "cafe",  "Tulbi Kohvik", "Tulbi tn 2c, Tartu linn", "Tulbi tn 2c, Tartu", 58.3765, 26.7025],
+        ["ee_tartu_c16", "cafe",  "Urve Kohvik", "Puiestee tn 73a, Tartu linn", "Puiestee tn 73a, Tartu", 58.3895, 26.7365],
+        ["ee_tartu_c17", "cafe",  "Ralf Cafe", "Ülikooli tn 2a, Tartu linn", "Ülikooli tn 2a, Tartu", 58.3788, 26.7235],
+        ["ee_tartu_c18", "cafe",  "METRO Võileivakohvik", "Raatuse tn 18, Tartu linn", "Raatuse tn 18, Tartu", 58.3822, 26.7285],
+        ["ee_tartu_s1",  "food",  "Restoran Joyce", "Riia tn 2, Tartu linn", "Riia tn 2 (V Spa), Tartu", 58.3775, 26.7285],
+        ["ee_tartu_s2",  "food",  "Restoran Antonius", "Ülikooli tn 15, Tartu linn", "Ülikooli tn 15, Tartu", 58.3810, 26.7205],
+        ["ee_tartu_s3",  "food",  "Restoran Dorpat", "Soola tn 6, Tartu linn", "Soola tn 6, Tartu", 58.3774, 26.7335],
+        ["ee_tartu_m1",  "sleep", "V Spa & Conference Hotel", "Riia tn 2, Tartu linn", "Riia tn 2, Tartu", 58.3775, 26.7285],
+        ["ee_tartu_m2",  "sleep", "Hotell Dorpat", "Soola tn 6, Tartu linn", "Soola tn 6, Tartu", 58.3774, 26.7335],
+        ["ee_tartu_m3",  "sleep", "Hotell Tartu", "Soola tn 3, Tartu linn", "Soola tn 3, Tartu", 58.3782, 26.7322],
+        ["ee_tartu_m4",  "sleep", "Art Hotel Pallas", "Riia tn 4, Tartu linn", "Riia tn 4, Tartu", 58.3772, 26.7272],
+        ["ee_tartu_m5",  "sleep", "Hotell Sophia", "Lääneringtee 39, Tartu linn", "Lääneringtee 39 (Lõunakeskus), Tartu", 58.3585, 26.6780],
+        ["ee_tartu_m6",  "sleep", "Antonius Boutique Hotel", "Ülikooli tn 15, Tartu linn", "Ülikooli tn 15, Tartu", 58.3810, 26.7205],
+
+        // ==================== 5. VILJANDIMAA (17) ====================
+        ["ee_vilj_f1",  "fuel",  "Circle K Viljandi Endla", "Endla tn 1, Viljandi linn", "Endla tn 1, Viljandi · 24/7", 58.3672, 25.5902],
+        ["ee_vilj_c1",  "cafe",  "Rohelise Maja Pood ja Kohvik", "Koidu tn 2, Viljandi linn", "Koidu tn 2, Viljandi · röstikoda", 58.3662, 25.6022],
+        ["ee_vilj_c2",  "cafe",  "Kohvik Fellin", "Tasuja pst 1, Viljandi linn", "Tasuja pst 1, Viljandi", 58.3622, 25.5982],
+        ["ee_vilj_c3",  "cafe",  "Kohvik Viljandi", "Lossi tn 31, Viljandi linn", "Lossi tn 31, Viljandi", 58.3652, 25.5992],
+        ["ee_vilj_c4",  "cafe",  "koduKOHVIK", "Tartu tn 1, Viljandi linn", "Tartu tn 1, Viljandi", 58.3645, 25.5998],
+        ["ee_vilj_c5",  "cafe",  "Kohvik Herr Artur", "Väike-Turu tn 8, Viljandi linn", "Väike-Turu tn 8, Viljandi", 58.3638, 25.5990],
+        ["ee_vilj_c6",  "cafe",  "Aida Kohvik", "Tasuja pst 6, Viljandi linn", "Tasuja pst 6 (Pärimusmuusika Ait), Viljandi", 58.3612, 25.5968],
+        ["ee_vilj_c7",  "cafe",  "Caramel Bakery", "Tehnika tn 2, Viljandi linn", "Tehnika tn 2, Viljandi", 58.3712, 25.5920],
+        ["ee_vilj_c8",  "cafe",  "Viljandi Pihlaka Kohvik", "Tallinna tn 41, Viljandi linn", "Tallinna tn 41, Viljandi", 58.3705, 25.5935],
+        ["ee_vilj_c9",  "cafe",  "Ugala Teatrikohvik", "Vaksali tn 7, Viljandi linn", "Vaksali tn 7, Viljandi", 58.3652, 25.5880],
+        ["ee_vilj_c10", "cafe",  "Endla Kohvik", "Endla tn 9, Viljandi linn", "Endla tn 9, Viljandi", 58.3676, 25.5892],
+        ["ee_vilj_s1",  "food",  "Restoran Ormisson", "Johan Laidoneri plats 8, Viljandi linn", "Johan Laidoneri plats 8, Viljandi", 58.3635, 25.5995],
+        ["ee_vilj_s2",  "food",  "Armeenia Köök Soso Juures", "Posti tn 6a, Viljandi linn", "Posti tn 6a, Viljandi", 58.3660, 25.5978],
+        ["ee_vilj_s3",  "food",  "Schloss Fellin Restoran", "Kauba tn 11, Viljandi linn", "Kauba tn 11, Viljandi", 58.3620, 25.5975],
+        ["ee_vilj_m1",  "sleep", "Schloss Fellin Boutique Hotel & Spa", "Kauba tn 11, Viljandi linn", "Kauba tn 11, Viljandi", 58.3620, 25.5975],
+        ["ee_vilj_m2",  "sleep", "Grand Hotel Viljandi", "Tartu tn 11, Viljandi linn", "Tartu tn 11, Viljandi", 58.3650, 25.6012],
+        ["ee_vilj_m3",  "sleep", "Park Hotell Viljandi", "Johan Laidoneri plats 8, Viljandi linn", "Johan Laidoneri plats 8, Viljandi", 58.3635, 25.5995],
+
+        // ==================== 6. JÕGEVAMAA (8) ====================
+        ["ee_jogeva_f1", "fuel",  "Circle K Adavere", "Tallinna mnt 8, Adavere alevik", "Tallinna mnt 8, Adavere · Tln-Trt mnt 24/7", 58.7102, 25.8975],
+        ["ee_jogeva_f2", "fuel",  "Circle K Mustvee", "Uus-Narva mnt 5, Mustvee linn", "Uus-Narva mnt 5, Mustvee · 24/7", 58.8492, 26.9410],
+        ["ee_jogeva_c1", "cafe",  "Peipsi Teemaja", "Tartu tn 26, Mustvee linn", "Tartu tn 26, Mustvee", 58.8485, 26.9430],
+        ["ee_jogeva_c2", "cafe",  "Kohvik Rivaal", "Veski tn 1, Põltsamaa linn", "Veski tn 1, Põltsamaa", 58.6532, 25.9715],
+        ["ee_jogeva_s1", "food",  "Carl Schmidti Maja", "Kesk tn 4, Põltsamaa linn", "Kesk tn 4, Põltsamaa", 58.6538, 25.9735],
+        ["ee_jogeva_m1", "sleep", "Coop Hotell Jõgeva", "Suur tn 11, Jõgeva linn", "Suur tn 11, Jõgeva", 58.7468, 26.3952],
+        ["ee_jogeva_m2", "sleep", "Ankur Hotell", "Tartu tn 5, Mustvee linn", "Tartu tn 5, Mustvee", 58.8495, 26.9422],
+        ["ee_jogeva_m3", "sleep", "Kuremaa Külalistemaja", "Soomevere tee 1, Kuremaa alevik", "Soomevere tee 1, Kuremaa", 58.7362, 26.5355],
+
+        // ==================== 7. JÄRVAMAA (8) ====================
+        ["ee_jarva_f1", "fuel", "Circle K Paide Automaat", "Pärnu tn 112a, Paide linn", "Pärnu tn 112a, Paide · 24/7 automaat", 58.8782, 25.5495],
+        ["ee_jarva_f2", "fuel", "Alexela Tikupoiss", "Paiaristi, Imavere küla", "Paiaristi, Imavere · Tln-Trt mnt 24/7", 58.7342, 25.7745],
+        ["ee_jarva_c1", "cafe", "Treegeri Kohvik", "Tallinna tn 27, Paide linn", "Tallinna tn 27, Paide", 58.8882, 25.5732],
+        ["ee_jarva_c2", "cafe", "Kohvik-Resto Ajatu", "Viljandi tn 60, Türi linn", "Viljandi tn 60, Türi", 58.8055, 25.4362],
+        ["ee_jarva_c3", "cafe", "Krooni Kohvik", "Hariduse tn 1, Türi linn", "Hariduse tn 1, Türi", 58.8092, 25.4315],
+        ["ee_jarva_c4", "cafe", "Jaani Tare", "Pikk tn 31, Järva-Jaani alev", "Pikk tn 31, Järva-Jaani", 59.0382, 25.8872],
+        ["ee_jarva_s1", "food", "Tikupoiss Restoran & Taluturg", "Paiaristi, Imavere küla", "Paiaristi, Imavere · Tln-Trt mnt", 58.7342, 25.7745],
+        ["ee_jarva_s2", "food", "Mäo Sämmi Grill", "Keskuse, Mäo küla", "Mäo ristmik, Paide · Tln-Trt mnt", 58.9125, 25.6192],
+
+        // ==================== 8. PÄRNUMAA (30) ====================
+        ["ee_parnu_f1",  "fuel",  "Circle K Pärnu Hommiku", "Hommiku tn 2, Pärnu linn", "Hommiku tn 2, Pärnu", 58.3865, 24.5042],
+        ["ee_parnu_f2",  "fuel",  "Circle K Häädemeeste", "Arumetsa küla, Häädemeeste vald", "Via Baltica, Häädemeeste · 24/7", 58.0815, 24.5042],
+        ["ee_parnu_c1",  "cafe",  "Kohvik Supelsaksad", "Nikolai tn 32, Pärnu linn", "Nikolai tn 32, Pärnu", 58.3822, 24.4992],
+        ["ee_parnu_c2",  "cafe",  "Männi Kohvik Pärnu", "Riia mnt 110b, Pärnu linn", "Riia mnt 110b, Pärnu", 58.3722, 24.5392],
+        ["ee_parnu_c3",  "cafe",  "Lehe Kohvik", "Lehe tn 5, Pärnu linn", "Lehe tn 5, Pärnu", 58.3765, 24.5045],
+        ["ee_parnu_c4",  "cafe",  "Cafe XS", "Munga tn 2, Pärnu linn", "Munga tn 2, Pärnu", 58.3852, 24.4982],
+        ["ee_parnu_c5",  "cafe",  "Café Grand", "Kuninga tn 25, Pärnu linn", "Kuninga tn 25, Pärnu", 58.3842, 24.5015],
+        ["ee_parnu_c6",  "cafe",  "Piano Kohvik", "Lai tn 11, Pärnu linn", "Lai tn 11 (Port Artur), Pärnu", 58.3872, 24.5045],
+        ["ee_parnu_c7",  "cafe",  "Cafe Peccadello", "Papiniidu tn 8, Pärnu linn", "Papiniidu tn 8 (Kaubamajakas), Pärnu", 58.3702, 24.5442],
+        ["ee_parnu_s1",  "food",  "Steffani Pizzarestoran", "Nikolai tn 24, Pärnu linn", "Nikolai tn 24, Pärnu", 58.3832, 24.4995],
+        ["ee_parnu_s2",  "food",  "Restoran Edelweiss", "Kuninga tn 15, Pärnu linn", "Kuninga tn 15, Pärnu", 58.3845, 24.4995],
+        ["ee_parnu_s3",  "food",  "Gruusia Restoran Kolhethi", "Kuninga tn 36, Pärnu linn", "Kuninga tn 36, Pärnu", 58.3838, 24.5032],
+        ["ee_parnu_s4",  "food",  "Sweet Rosie Irish Pub", "Munga tn 2, Pärnu linn", "Munga tn 2, Pärnu", 58.3852, 24.4982],
+        ["ee_parnu_s5",  "food",  "Aleksandri Pub", "Vana-Rääma tn 8, Pärnu linn", "Vana-Rääma tn 8, Pärnu", 58.3932, 24.5052],
+        ["ee_parnu_s6",  "food",  "Mon Ami", "Kuninga tn 11, Pärnu linn", "Kuninga tn 11, Pärnu", 58.3848, 24.4988],
+        ["ee_parnu_s7",  "food",  "Restoran RÖÖM", "Pühavaimu tn 15, Pärnu linn", "Pühavaimu tn 15, Pärnu", 58.3845, 24.5005],
+        ["ee_parnu_s8",  "food",  "Restoran Villa Wesset", "Supeluse tn 26, Pärnu linn", "Supeluse tn 26, Pärnu", 58.3775, 24.4972],
+        ["ee_parnu_s9",  "food",  "Restoran NOOT", "A. H. Tammsaare pst 4a, Pärnu linn", "A. H. Tammsaare pst 4a, Pärnu", 58.3772, 24.5025],
+        ["ee_parnu_s10", "food",  "Alexela Täkupoiss Restoran", "Selja tee 4, Kilksama küla", "Selja tee 4, Kilksama · Via Baltica", 58.4312, 24.5255],
+        ["ee_parnu_m1",  "sleep", "Pärnu Rannahotell", "Ranna pst 5, Pärnu linn", "Ranna pst 5, Pärnu", 58.3752, 24.4975],
+        ["ee_parnu_m2",  "sleep", "Hedon Spa & Hotel", "Ranna pst 1, Pärnu linn", "Ranna pst 1, Pärnu", 58.3762, 24.4952],
+        ["ee_parnu_m3",  "sleep", "ESTONIA Resort Hotel & Spa", "A. H. Tammsaare pst 4a, Pärnu linn", "A. H. Tammsaare pst 4a/6, Pärnu", 58.3772, 24.5025],
+        ["ee_parnu_m4",  "sleep", "Medical Spa & Hotel ESTONIA", "Pärna tn 12, Pärnu linn", "Pärna tn 12, Pärnu", 58.3788, 24.4965],
+        ["ee_parnu_m5",  "sleep", "Spa Hotel Tervise Paradiis", "Side tn 14, Pärnu linn", "Side tn 14, Pärnu", 58.3728, 24.5072],
+        ["ee_parnu_m6",  "sleep", "Villa Wesset", "Supeluse tn 26, Pärnu linn", "Supeluse tn 26, Pärnu", 58.3775, 24.4972],
+        ["ee_parnu_m7",  "sleep", "Viiking Spa Hotel", "Sadama tn 15, Pärnu linn", "Sadama tn 15, Pärnu", 58.3842, 24.4892],
+        ["ee_parnu_m8",  "sleep", "Wasa Resort Hotel & Spa", "Suvituse tn 14, Pärnu linn", "Suvituse tn 14, Pärnu", 58.3785, 24.4932],
+        ["ee_parnu_m9",  "sleep", "Villa Ammende", "Mere pst 7, Pärnu linn", "Mere pst 7, Pärnu", 58.3792, 24.4955],
+        ["ee_parnu_m10", "sleep", "Pärnu Hotell", "Rüütli tn 44, Pärnu linn", "Rüütli tn 44, Pärnu", 58.3852, 24.5032],
+        ["ee_parnu_m11", "sleep", "Carolina Hotel", "Ringi tn 54b, Pärnu linn", "Ringi tn 54b, Pärnu", 58.3812, 24.4962],
+
+        // ==================== 9. SAAREMAA (15) ====================
+        ["ee_saare_f1", "fuel",  "Olerex Kuressaare", "Tallinna tn 84, Kuressaare linn", "Tallinna tn 84, Kuressaare · 24/7", 58.2635, 22.5072],
+        ["ee_saare_c1", "cafe",  "Classic Kohvik", "Lossi tn 9, Kuressaare linn", "Lossi tn 9, Kuressaare", 58.2512, 22.4848],
+        ["ee_saare_c2", "cafe",  "Chameleon Kohvik-Lounge", "Kauba tn 2, Kuressaare linn", "Kauba tn 2, Kuressaare", 58.2528, 22.4842],
+        ["ee_saare_c3", "cafe",  "Good Mood Food", "Tolli tn 4, Kuressaare linn", "Tolli tn 4, Kuressaare", 58.2518, 22.4822],
+        ["ee_saare_c4", "cafe",  "Restoran & Kohvik Kass", "Vallimaa tn 5a, Kuressaare linn", "Vallimaa tn 5a, Kuressaare", 58.2542, 22.4892],
+        ["ee_saare_s1", "food",  "Saaremaa Veski", "Pärna tn 19, Kuressaare linn", "Pärna tn 19, Kuressaare", 58.2488, 22.4822],
+        ["ee_saare_s2", "food",  "Castello Restoran Pizzeria", "Lossi tn 11, Kuressaare linn", "Lossi tn 11, Kuressaare", 58.2508, 22.4845],
+        ["ee_saare_s3", "food",  "Pöide Grillhouse", "Uus tn 20, Kuressaare linn", "Uus tn 20, Kuressaare", 58.2545, 22.4895],
+        ["ee_saare_s4", "food",  "Resto HAFEN", "Tori tn 4, Kuressaare linn", "Tori tn 4 (Jahisadam), Kuressaare", 58.2462, 22.4735],
+        ["ee_saare_s5", "food",  "Ristorante la Perla", "Lossi tn 3, Kuressaare linn", "Lossi tn 3, Kuressaare", 58.2522, 22.4852],
+        ["ee_saare_s6", "food",  "Pritsumaja Grill & Bar", "Tallinna tn 4, Kuressaare linn", "Tallinna tn 4, Kuressaare", 58.2535, 22.4858],
+        ["ee_saare_s7", "food",  "Kodulinna Lokaal", "Tallinna tn 11, Kuressaare linn", "Tallinna tn 11, Kuressaare", 58.2540, 22.4872],
+        ["ee_saare_s8", "food",  "Restoran Arensburg", "Lossi tn 15, Kuressaare linn", "Lossi tn 15, Kuressaare", 58.2502, 22.4842],
+        ["ee_saare_m1", "sleep", "Arensburg Boutique Hotel & Spa", "Lossi tn 15, Kuressaare linn", "Lossi tn 15, Kuressaare", 58.2502, 22.4842],
+        ["ee_saare_m2", "sleep", "GOSPA / Georg Ots Spa Hotell", "Tori tn 2, Kuressaare linn", "Tori tn 2, Kuressaare", 58.2468, 22.4752],
+
+        // ==================== 10. HIIUMAA (4) ====================
+        ["ee_hiiu_c1", "cafe",  "Emmaste Teemaja", "Emmaste küla, Hiiumaa vald", "Emmaste küla, Hiiumaa", 58.7042, 22.6132],
+        ["ee_hiiu_s1", "food",  "Restoran Rannapaargu", "Lubjaahju tn 3, Kärdla linn", "Lubjaahju tn 3, Kärdla · rand", 59.0052, 22.7525],
+        ["ee_hiiu_s2", "food",  "Söökla Sõnajala", "Leigri väljak 1a, Kärdla linn", "Leigri väljak 1a, Kärdla", 58.9952, 22.7482],
+        ["ee_hiiu_m1", "sleep", "Pihla Turismitalu", "Kõpu küla, Hiiumaa vald", "Kõpu küla, Hiiumaa", 58.9152, 22.2122],
+
+        // ==================== 11. LÄÄNEMAA (12) ====================
+        ["ee_laane_f1", "fuel",  "Circle K Uuemõisa", "Tallinna mnt 77, Uuemõisa alevik", "Tallinna mnt 77, Uuemõisa · 24/7", 58.9398, 23.5825],
+        ["ee_laane_c1", "cafe",  "Müüriääre Kohvik", "Karja tn 7, Haapsalu linn", "Karja tn 7, Haapsalu", 58.9472, 23.5392],
+        ["ee_laane_c2", "cafe",  "Hapsal Dietrich", "Karja tn 10, Haapsalu linn", "Karja tn 10, Haapsalu", 58.9475, 23.5382],
+        ["ee_laane_c3", "cafe",  "Teele Pagarikohvik", "Metsa tn 53, Haapsalu linn", "Metsa tn 53, Haapsalu", 58.9432, 23.5512],
+        ["ee_laane_c4", "cafe",  "Cafe Tallinn", "Rannarootsi tee 1, Uuemõisa küla", "Rannarootsi Keskus, Uuemõisa", 58.9412, 23.5752],
+        ["ee_laane_c5", "cafe",  "Q Kohvik", "Tallinna mnt 84, Uuemõisa alevik", "Tallinna mnt 84, Uuemõisa", 58.9392, 23.5852],
+        ["ee_laane_s1", "food",  "Talumehe Kõrts", "Karja tn 2, Haapsalu linn", "Karja tn 2, Haapsalu", 58.9478, 23.5372],
+        ["ee_laane_s2", "food",  "Taksi Pubi", "Posti tn 29, Haapsalu linn", "Posti tn 29, Haapsalu", 58.9445, 23.5418],
+        ["ee_laane_s3", "food",  "Nurme Bistroo", "Nurme tn 1, Haapsalu linn", "Nurme tn 1, Haapsalu", 58.9452, 23.5425],
+        ["ee_laane_s4", "food",  "Puhvet Kapp", "Tallinna mnt 1, Haapsalu linn", "Tallinna mnt 1, Haapsalu", 58.9438, 23.5432],
+        ["ee_laane_s5", "food",  "Mandarin Restoran", "Lihula mnt 2, Haapsalu linn", "Lihula mnt 2, Haapsalu", 58.9432, 23.5402],
+        ["ee_laane_m1", "sleep", "Altmõisa Külalistemaja", "Tuuru küla, Haapsalu linn", "Tuuru küla, Läänemaa", 58.8182, 23.5292],
+
+        // ==================== 12. RAPLAMAA (5) ====================
+        ["ee_rapla_f1", "fuel",  "Circle K Märjamaa", "Orgita küla, Märjamaa vald", "Orgita, Märjamaa · Via Baltica 24/7", 58.9172, 24.4552],
+        ["ee_rapla_c1", "cafe",  "Marju Kohvik", "Hariduse tn 3, Rapla linn", "Hariduse tn 3, Rapla", 59.0072, 24.7922],
+        ["ee_rapla_s1", "food",  "Šašlõkibaar Karavan", "Viljandi mnt 5, Rapla linn", "Viljandi mnt 5, Rapla", 59.0062, 24.7932],
+        ["ee_rapla_s2", "food",  "Restoran Hollivuud", "Tallinna mnt 17a, Rapla linn", "Tallinna mnt 17a, Rapla", 59.0085, 24.7945],
+        ["ee_rapla_m1", "sleep", "Ruunawere Postimõis Hotell", "Pajaka küla, Märjamaa vald", "Pajaka, Raplamaa · Via Baltica", 59.0352, 24.4102],
+
+        // ==================== 13. HARJUMAA & TALLINN (50) ====================
+        ["ee_tln_f1",  "fuel",  "Circle K Kristiine", "Endla tn 43, Tallinn", "Endla tn 43, Tallinn · 24/7", 59.4272, 24.7235],
+        ["ee_tln_f2",  "fuel",  "Circle K Mustamäe", "A. H. Tammsaare tee 76, Tallinn", "Tammsaare tee 76, Tallinn · 24/7", 59.4062, 24.7022],
+        ["ee_tln_f3",  "fuel",  "Circle K Sütiste", "J. Sütiste tee 1, Tallinn", "J. Sütiste tee 1, Tallinn · 24/7", 59.3992, 24.7035],
+        ["ee_tln_f4",  "fuel",  "Circle K Laagri", "Pärnu mnt 552b, Tallinn", "Pärnu mnt 552b, Tallinn · 24/7", 59.3542, 24.6225],
+        ["ee_tln_f5",  "fuel",  "Circle K Nõmme", "Männiku tee 2, Tallinn", "Männiku tee 2, Tallinn · 24/7", 59.3885, 24.7222],
+        ["ee_tln_f6",  "fuel",  "Circle K Keila", "Ülejõe, Tutermaa küla", "Tutermaa, Keila · 24/7", 59.3222, 24.4422],
+        ["ee_tln_c1",  "cafe",  "Kohvik Maiasmokk", "Pikk tn 16, Tallinn", "Pikk tn 16, Vanalinn · Eesti vanim kohvik", 59.4382, 24.7458],
+        ["ee_tln_c2",  "cafe",  "RUKIS Kohvik ja Pagarikoda", "Viru tn 11, Tallinn", "Viru tn 11, Vanalinn", 59.4368, 24.7485],
+        ["ee_tln_c3",  "cafe",  "Katharinenthal", "A. Weizenbergi tn 22, Tallinn", "A. Weizenbergi tn 22, Kadriorg", 59.4382, 24.7885],
+        ["ee_tln_c4",  "cafe",  "Ristikheina Kohvik Pelgulinn", "Ristiku tn 57, Tallinn", "Ristiku tn 57, Pelgulinn", 59.4392, 24.7182],
+        ["ee_tln_c5",  "cafe",  "Ristikheina Kohvik Balti Jaam", "Kopli tn 1, Tallinn", "Balti Jaama Turg, Tallinn", 59.4408, 24.7362],
+        ["ee_tln_c6",  "cafe",  "Ristikheina Kohvik Kristiine", "Endla tn 45, Tallinn", "Kristiine Keskus, Tallinn", 59.4268, 24.7228],
+        ["ee_tln_c7",  "cafe",  "Ristikheina Kohvik Ülemiste", "Suur-Sõjamäe tn 4, Tallinn", "Ülemiste Keskus, Tallinn", 59.4222, 24.7942],
+        ["ee_tln_c8",  "cafe",  "Reval Cafe Müürivahe", "Müürivahe tn 14, Tallinn", "Müürivahe tn 14, Vanalinn", 59.4352, 24.7475],
+        ["ee_tln_c9",  "cafe",  "Reval Cafe Pärnu mnt", "Pärnu mnt 27, Tallinn", "Pärnu mnt 27, Kesklinn", 59.4315, 24.7452],
+        ["ee_tln_c10", "cafe",  "Reval Cafe Rävala", "Rävala pst 3, Tallinn", "Rävala pst 3, Kesklinn", 59.4342, 24.7562],
+        ["ee_tln_c11", "cafe",  "Reval Cafe Postimaja", "Narva mnt 1, Tallinn", "Narva mnt 1, Kesklinn", 59.4375, 24.7572],
+        ["ee_tln_c12", "cafe",  "Reval Cafe Viru Keskus", "Viru väljak 4, Tallinn", "Viru Keskus, Tallinn", 59.4365, 24.7555],
+        ["ee_tln_c13", "cafe",  "Reval Cafe Telliskivi", "Telliskivi tn 51i, Tallinn", "Telliskivi tn 51i, Kalamaja", 59.4392, 24.7285],
+        ["ee_tln_c14", "cafe",  "Reval Cafe Kumu", "A. Weizenbergi tn 34, Tallinn", "Kumu, Kadriorg", 59.4362, 24.7962],
+        ["ee_tln_c15", "cafe",  "Reval Cafe Laki", "Laki tn 11a, Tallinn", "Laki tn 11a, Mustamäe", 59.4162, 24.6872],
+        ["ee_tln_c16", "cafe",  "Reval Cafe PERH", "J. Sütiste tee 19, Tallinn", "J. Sütiste tee 19, Mustamäe", 59.3975, 24.7025],
+        ["ee_tln_c17", "cafe",  "Fika Cafe", "Telliskivi tn 60a, Tallinn", "Telliskivi Loomelinnak, Tallinn", 59.4390, 24.7282],
+        ["ee_tln_c18", "cafe",  "OA Coffeeshop", "Müürivahe tn 36, Tallinn", "Müürivahe tn 36, Vanalinn", 59.4362, 24.7485],
+        ["ee_tln_c19", "cafe",  "Dot Cafe", "Pärnu mnt 29, Tallinn", "Pärnu mnt 29, Kesklinn", 59.4312, 24.7450],
+        ["ee_tln_c20", "cafe",  "Café Narva", "Narva mnt 10, Tallinn", "Narva mnt 10, Kesklinn", 59.4378, 24.7622],
+        ["ee_tln_c21", "cafe",  "Nõmme Sõõrikukohvik", "Jaama tn 12, Tallinn", "Jaama tn 12, Nõmme", 59.3868, 24.6835],
+        ["ee_tln_c22", "cafe",  "Gustav Cafe Mustamäe", "A. H. Tammsaare tee 104a, Tallinn", "Mustamäe Keskus, Tallinn", 59.4092, 24.6895],
+        ["ee_tln_c23", "cafe",  "Männi Kohvik Tallinn", "Keskuse tn 5a, Tallinn", "Keskuse tn 5a, Mustamäe", 59.4032, 24.6772],
+        ["ee_tln_c24", "cafe",  "Vernalia Cafe", "Tööstuse tn 48, Tallinn", "Tööstuse tn 48, Kalamaja", 59.4492, 24.7255],
+        ["ee_tln_c25", "cafe",  "Kohvik Mademoiselle", "Toompuiestee 27, Tallinn", "Toompuiestee 27, Tallinn", 59.4355, 24.7322],
+        ["ee_tln_c26", "cafe",  "Plus Kohvik Bussijaam", "Lastekodu tn 46, Tallinn", "Tallinna Bussijaam", 59.4272, 24.7735],
+        ["ee_tln_c27", "cafe",  "Plus Kohvik Kadaka", "Kadaka tee 4, Tallinn", "Kadaka tee 4, Mustamäe", 59.4132, 24.6792],
+        ["ee_tln_c28", "cafe",  "Moonirull Pagarikohvik", "Lahepea tn 11, Tallinn", "Lahepea tn 11, Haabersti", 59.4312, 24.6962],
+        ["ee_tln_c29", "cafe",  "Imelihtne Kohvik", "Klooga mnt 5a, Tabasalu alevik", "Klooga mnt 5a, Tabasalu", 59.4292, 24.5522],
+        ["ee_tln_s1",  "food",  "Restoran Olde Hansa", "Vana turg 1, Tallinn", "Vana turg 1, Vanalinn", 59.4368, 24.7468],
+        ["ee_tln_s2",  "food",  "Restoran Rataskaevu 16", "Rataskaevu tn 16, Tallinn", "Rataskaevu tn 16, Vanalinn", 59.4372, 24.7422],
+        ["ee_tln_s3",  "food",  "Restoran Moon", "Telliskivi tn 60, Tallinn", "Telliskivi 60-4, Kalamaja", 59.4395, 24.7290],
+        ["ee_tln_s4",  "food",  "Alfredi Pub", "Rahumäe tee 25, Tallinn", "Rahumäe tee 25, Nõmme", 59.3912, 24.7032],
+        ["ee_tln_s5",  "food",  "Margherita Pizzeria & Trattoria", "Lai tn 2, Tallinn", "Lai tn 2, Vanalinn", 59.4382, 24.7428],
+        ["ee_tln_s6",  "food",  "ORU Bistro", "Narva mnt 120, Tallinn", "Narva mnt 120, Kadriorg", 59.4422, 24.7982],
+        ["ee_tln_s7",  "food",  "Repa Restoran", "Suur-Sõjamäe tn 4, Tallinn", "Ülemiste Keskus, Tallinn", 59.4222, 24.7942],
+        ["ee_tln_s8",  "food",  "Friend's Mustamäe", "E. Vilde tee 128, Tallinn", "E. Vilde tee 128, Mustamäe", 59.4042, 24.6682],
+        ["ee_tln_m1",  "sleep", "Swissôtel Tallinn", "Tornimäe tn 3, Tallinn", "Tornimäe tn 3, Kesklinn", 59.4332, 24.7615],
+        ["ee_tln_m2",  "sleep", "Schlössle Hotel", "Pühavaimu tn 13, Tallinn", "Pühavaimu tn 13-15, Vanalinn", 59.4382, 24.7465],
+        ["ee_tln_m3",  "sleep", "Park Inn by Radisson Central Tallinn", "Narva mnt 7c, Tallinn", "Narva mnt 7c, Kesklinn", 59.4375, 24.7612],
+        ["ee_tln_m4",  "sleep", "Park Inn by Radisson Meriton Spa", "Toompuiestee 27, Tallinn", "Toompuiestee 27, Tallinn", 59.4355, 24.7322],
+        ["ee_tln_m5",  "sleep", "Tähetorni Hotell", "Tähetorni tn 16, Tallinn", "Tähetorni tn 16, Nõmme", 59.3872, 24.6522],
+        ["ee_tln_m6",  "sleep", "Nelijärve Puhkekeskus", "Nelijärve tn 4, Aegviidu alev", "Nelijärve tn 4, Aegviidu", 59.2662, 25.6472],
+        ["ee_tln_m7",  "sleep", "Paunküla Heaolukeskus", "Kiruvere küla, Kose vald", "Paunküla, Kose vald", 59.1392, 25.3182],
+
+        // ==================== 14. LÄÄNE-VIRUMAA (12) ====================
+        ["ee_lviru_f1", "fuel",  "Olerex Rakvere Rägavere", "Rägavere tee 2, Rakvere linn", "Rägavere tee 2, Rakvere · 24/7", 59.3422, 26.3645],
+        ["ee_lviru_c1", "cafe",  "Rohuaia Kohvik", "Rohuaia tn 13, Rakvere linn", "Rohuaia tn 13, Rakvere · pagar & kohvik", 59.3472, 26.3595],
+        ["ee_lviru_c2", "cafe",  "Art Café Rakvere", "Lai tn 13, Rakvere linn", "Lai tn 13, Rakvere", 59.3482, 26.3575],
+        ["ee_lviru_c3", "cafe",  "Päts Sahver", "Jaama pst 15, Rakvere linn", "Jaama pst 15, Rakvere · pagarikoda", 59.3542, 26.3635],
+        ["ee_lviru_c4", "cafe",  "Laada Café", "Laada tn 10a, Rakvere linn", "Laada tn 10a, Rakvere", 59.3468, 26.3612],
+        ["ee_lviru_c5", "cafe",  "Pihlaka Parkali Kohvik", "Parkali tn 7, Rakvere linn", "Parkali tn 7, Rakvere", 59.3462, 26.3565],
+        ["ee_lviru_c6", "cafe",  "K&K Magusanurk", "Pikk tn 11, Rakvere linn", "Pikk tn 11, Rakvere", 59.3492, 26.3545],
+        ["ee_lviru_s1", "food",  "Berliini Trahter", "Lai tn 15, Rakvere linn", "Lai tn 15, Rakvere", 59.3480, 26.3578],
+        ["ee_lviru_s2", "food",  "PARQALI Resto & Grill", "Parkali tn 4, Rakvere linn", "Parkali tn 4 (Aqva), Rakvere", 59.3460, 26.3562],
+        ["ee_lviru_s3", "food",  "Rohuaia Pitsa", "Tallinna tn 68, Rakvere linn", "Tallinna tn 68, Rakvere", 59.3512, 26.3665],
+        ["ee_lviru_s4", "food",  "Slaavi Köök - 12 kuud", "Lai tn 11, Rakvere linn", "Lai tn 11, Rakvere", 59.3484, 26.3572],
+        ["ee_lviru_m1", "sleep", "Aqva Hotel & Spa", "Parkali tn 4, Rakvere linn", "Parkali tn 4, Rakvere", 59.3460, 26.3562],
+
+        // ==================== 15. IDA-VIRUMAA (12) ====================
+        ["ee_iviru_c1", "cafe",  "Kohvik Muna", "Raekoja plats 2, Narva linn", "Raekoja plats 2, Narva", 59.3792, 28.1985],
+        ["ee_iviru_c2", "cafe",  "Kohvik Bublik", "A. Puškini tn 13, Narva linn", "A. Puškini tn 13, Narva", 59.3768, 28.1945],
+        ["ee_iviru_c3", "cafe",  "Kohvik Nobel", "Tallinna mnt 41, Narva linn", "Tallinna mnt 41 (Astri), Narva", 59.3812, 28.1725],
+        ["ee_iviru_c4", "cafe",  "Oma Kohvik Fama", "Fama põik 10, Narva linn", "Fama Keskus, Narva", 59.3782, 28.1872],
+        ["ee_iviru_c5", "cafe",  "Dve Sestry Cafe", "I. Lavretsovi tn 7, Narva linn", "I. Lavretsovi tn 7, Narva", 59.3765, 28.1965],
+        ["ee_iviru_c6", "cafe",  "Valge Kõrvits", "I. Lavretsovi tn 8, Narva linn", "I. Lavretsovi tn 8, Narva", 59.3762, 28.1970],
+        ["ee_iviru_s1", "food",  "Old Trafford Restoran", "Peetri plats 1, Narva linn", "Peetri plats 1, Narva", 59.3772, 28.1952],
+        ["ee_iviru_s2", "food",  "Petchki Lavotchki", "Fama põik 10, Narva linn", "Fama Keskus, Narva", 59.3782, 28.1872],
+        ["ee_iviru_s3", "food",  "Saka Mõisa Restoran Cliff", "Saka küla, Toila vald", "Saka Mõis, Ida-Virumaa", 59.4372, 27.1812],
+        ["ee_iviru_s4", "food",  "Toila Spa Restoran Mio Mare", "Ranna tn 12, Toila alevik", "Ranna tn 12, Toila", 59.4242, 27.5302],
+        ["ee_iviru_m1", "sleep", "Toila Spa Hotell", "Ranna tn 12, Toila alevik", "Ranna tn 12, Toila", 59.4242, 27.5302],
+        ["ee_iviru_m2", "sleep", "Noorus Spa Hotel", "L. Koidula tn 19d, Narva-Jõesuu linn", "L. Koidula tn 19d, Narva-Jõesuu", 59.4572, 28.0372]
+      ].map(([id, catId, name, addr, sub, lat, lon]) => ({ id, catId, name, addr, sub, lat, lon }));
 
       const BASE_MAP_ORDER = ["graphic", "maaamet", "hybrid"];
 
@@ -2261,24 +2519,34 @@
       /* ---------- VÕRDLUSMEETOD (MULTI-ALLIKA HUVIPUNKTIDE ÜHENDAMINE, AINULT EESTI) ---------- */
 
       const POI_GENERIC_WORDS = new Set([
-        "kohvik", "restoran", "resto", "pubi", "pub", "baar", "bar", "cafe", "bistroo", "bistro",
+        "kohvik", "kohvikud", "restoran", "resto", "restaurant", "pubi", "pub", "baar", "bar", "cafe",
+        "bistroo", "bistro", "pagar", "pagarikoda", "pagarikohvik", "kondiiter", "bakery", "coffee",
+        "coffeeshop", "kohviteek", "kohvipood", "teemaja", "lounge", "pizzeria", "sookla",
         "hotell", "hotel", "motell", "motel", "hostel", "kulalistemaja", "kulaliskorterid",
         "kulaliskorter", "guest", "house", "guesthouse", "puhkemaja", "puhketalu", "puhkekeskus",
         "tankla", "automaattankla", "automaat", "teenindusjaam", "bensiinijaam", "express", "oil",
-        "voru", "linn", "kula", "alevik", "eesti", "estonia", "ou", "as", "nr", "ja", "and",
+        "voru", "tallinn", "tartu", "parnu", "narva", "viljandi", "rakvere", "haapsalu", "kuressaare",
+        "kardla", "polva", "valga", "paide", "turi", "rapla", "jogeva", "poltsamaa", "johvi",
+        "otepaa", "mustvee", "torva", "toila", "keila", "uuemoisa", "linn", "kula", "alevik",
+        "eesti", "estonia", "ou", "as", "nr", "ja", "and",
         "aasia", "grill", "pizza", "spaa", "spa", "karavanipark", "kohtumispaik"
       ]);
 
       const POI_GENERIC_NAMES = new Set([
         "tankla", "tanklad", "fuel", "soogikohad", "soogikoht", "restoran", "restaurant",
-        "kohvik", "cafe", "pubi", "pub", "baar", "bar", "bistroo", "majutus", "hotell",
+        "kohvik", "kohvikud", "cafe", "bakery", "pagar", "pagarikoda", "coffee",
+        "pubi", "pub", "baar", "bar", "bistroo", "majutus", "hotell",
         "hotel", "motell", "hostel", "kulalistemaja", "puhkemaja", "kamping"
       ]);
 
       const POI_STREET_STOPWORDS = new Set([
-        "keskus", "kagukeskus", "kesklinna", "kooli", "juri", "pikk", "rapina", "tallinna",
-        "kreutzwaldi", "vabaduse", "seminari", "katariina", "petseri", "manniku", "koidula",
-        "andsujarve", "polva", "maantee", "tanav"
+        "keskus", "kagukeskus", "kesklinna", "vanalinna", "kaubamaja", "kooli", "juri", "pikk",
+        "rapina", "tallinna", "tartu", "narva", "parnu", "viljandi", "kreutzwaldi", "vabaduse",
+        "seminari", "katariina", "petseri", "manniku", "koidula", "andsujarve", "polva", "maantee",
+        "tanav", "kuninga", "ruutli", "lossi", "karja", "nikolai", "riia", "turu", "lai", "jaama",
+        "posti", "ranna", "tammsaare", "telliskivi", "muurivahe", "viru", "raekoja", "ulikooli",
+        "soola", "tahe", "vaksali", "rohuaia", "parkali", "laada", "supeluse", "kauba", "tori",
+        "lavretsovi", "puskini", "fama", "endla", "sutiste", "kadaka", "laki", "weizenbergi"
       ]);
 
       function normalizePoiRaw(name) {
@@ -2499,7 +2767,9 @@
       function getVerifiedEstoniaPois(cat, center, reqRadius) {
         if (!cat || !center) return [];
         const cache = loadInAdsPoiCache();
-        const catEntries = EE_VERIFIED_POIS.filter((p) => p.catId === cat.id);
+        const catEntries = EE_VERIFIED_POIS.filter((p) =>
+          p.catId === cat.id || (cat.includeCafeVerified && p.catId === "cafe")
+        );
         const addrCounts = new Map();
         const addrSeen = new Map();
         for (let i = 0; i < catEntries.length; i++) {
@@ -2521,6 +2791,7 @@
             out.push(item);
           }
         }
+        out.sort((a, b) => a.distM - b.distM);
         return out;
       }
 
@@ -2534,6 +2805,7 @@
           if (p.addr && !cache[p.addr] && !seenAddr.has(p.addr)) {
             seenAddr.add(p.addr);
             toResolve.push({ addr: p.addr, baseLat: p.lat, baseLon: p.lon });
+            if (toResolve.length >= 28) break; // Lähimad 28 täpsustamata aadressi korraga
           }
         }
         if (toResolve.length === 0) return;
@@ -2543,6 +2815,7 @@
         for (let i = 0; i < toResolve.length; i += BATCH_SIZE) {
           if (typeof shouldCancel === "function" && shouldCancel()) return;
           const slice = toResolve.slice(i, i + BATCH_SIZE);
+          let batchChanged = false;
           await Promise.all(slice.map(async (entry) => {
             try {
               const url = `https://inaadress.maaamet.ee/inaadress/gazetteer?address=${encodeURIComponent(entry.addr)}&results=1&unik=1&appartment=0`;
@@ -2557,8 +2830,17 @@
               if (distanceMeters({ lat: entry.baseLat, lon: entry.baseLon }, c) > 2500) return;
               cache[entry.addr] = { lat: c.lat, lon: c.lon, ts: Date.now() };
               changed = true;
+              batchChanged = true;
             } catch (_) {}
           }));
+          // Uuenda kaarti jooksvalt iga 2 partii järel
+          if (batchChanged && ((i / BATCH_SIZE) % 2 === 1)) {
+            saveInAdsPoiCache(cache);
+            if (typeof shouldCancel === "function" && shouldCancel()) return;
+            if (typeof onUpdated === "function") {
+              onUpdated(getVerifiedEstoniaPois(cat, center, reqRadius));
+            }
+          }
         }
 
         if (changed) {
@@ -2630,8 +2912,8 @@
         return results;
       }
 
-      async function fetchPoisFromOverpass(cat, center, reqRadius, shouldCancel) {
-        const bb = getSearchBbox(center, reqRadius, true);
+      async function queryOverpassPoiRing(cat, center, ringRadius, limitCount, shouldCancel) {
+        const bb = getSearchBbox(center, ringRadius, true);
         if (!bb) return [];
         const parts = [];
         for (let i = 0; i < cat.overpass.length; i++) {
@@ -2643,7 +2925,7 @@
           );
         }
 
-        const query = `[out:json][timeout:10];(${parts.join("")});out center qt 300;`;
+        const query = `[out:json][timeout:12];(${parts.join("")});out center qt ${limitCount};`;
         const data = await enqueueOverpass(query, "POI-Overpass", shouldCancel);
         if (!data || !Array.isArray(data.elements)) return null;
 
@@ -2655,7 +2937,7 @@
           const c = toValidCoord(rawLat, rawLon);
           if (!c || !isCoordInEstonia(c.lat, c.lon)) continue;
           const d = distanceMeters(center, c);
-          if (d > reqRadius) continue;
+          if (d > ringRadius) continue;
 
           const tags = elem.tags || {};
           if (tags["addr:country"] && String(tags["addr:country"]).toUpperCase() !== "EE") continue;
@@ -2675,6 +2957,20 @@
           });
         }
         return out;
+      }
+
+      async function fetchPoisFromOverpass(cat, center, reqRadius, shouldCancel) {
+        const outer = await queryOverpassPoiRing(cat, center, reqRadius, 600, shouldCancel);
+        if (!outer) return null;
+        // Kui suure raadiuse päring (25–100 km) tabas limiiti, küsi lisaks lähiring (10 km),
+        // et lähedal asuvad kohvikud/söögikohad suurlinna tiheduse tõttu välja ei jääks
+        if (reqRadius > 15000 && outer.length >= 450 && !(typeof shouldCancel === "function" && shouldCancel())) {
+          const inner = await queryOverpassPoiRing(cat, center, 10000, 350, shouldCancel);
+          if (inner && inner.length > 0) {
+            return mergePoiItems(outer, inner, center, reqRadius);
+          }
+        }
+        return outer;
       }
 
       async function fetchPoisFromNominatim(cat, center, reqRadius, shouldCancel, maxTerms) {
