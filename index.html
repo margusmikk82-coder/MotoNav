@@ -58,33 +58,39 @@
     }
 
     .topbar {
-      display: flex; align-items: center; gap: 6px; padding: 8px;
+      display: flex; align-items: center; gap: 5px; padding: 6px 8px;
       background: var(--surface); border-bottom: 2px solid var(--border); flex-shrink: 0;
     }
 
     .gps-pill {
-      display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 10px;
+      display: flex; align-items: center; gap: 6px; min-height: 42px; min-width: 0; padding: 0 8px;
       border-radius: 10px; border: 2px solid var(--border);
       background: var(--surface-2); color: var(--text);
-      font-weight: 700; font-size: 13px; cursor: pointer; flex: 1; text-align: left;
+      font-weight: 700; font-size: 12px; cursor: pointer; flex: 1; text-align: left;
+      overflow: hidden;
+    }
+    .gps-pill span:last-child {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
 
-    .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--err); flex-shrink: 0; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--err); flex-shrink: 0; }
     .dot.ok { background: var(--ok); }
     .dot.warn { background: var(--warn); }
 
     .icon-btn {
-      min-width: 46px; min-height: 44px; padding: 0 9px;
+      min-width: 40px; min-height: 42px; padding: 0 7px;
       border-radius: 10px; border: 2px solid var(--border);
       background: var(--surface-2); color: var(--text);
-      font-weight: 800; font-size: 13px; cursor: pointer;
+      font-weight: 800; font-size: 12px; cursor: pointer; flex-shrink: 0;
     }
     .icon-btn.active { border-color: var(--ok); color: var(--ok); }
+    .icon-btn.accent-active { border-color: var(--accent); color: var(--accent); }
 
     .search-wrap {
       position: relative; padding: 8px;
       background: var(--surface); border-bottom: 2px solid var(--border); flex-shrink: 0;
     }
+    .search-wrap.collapsed { display: none; }
 
     .search-row { display: flex; gap: 6px; }
 
@@ -276,7 +282,14 @@
 
     .canvas-controls-left {
       position: absolute; left: 8px; bottom: 8px;
-      display: flex; flex-direction: column; gap: 6px; z-index: 10;
+      display: flex; flex-direction: column; align-items: flex-start; gap: 6px; z-index: 10;
+    }
+    .map-controls-list {
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .map-controls-list.collapsed { display: none; }
+    .controls-toggle {
+      min-width: 92px; text-align: center;
     }
 
     .canvas-controls-right {
@@ -443,8 +456,8 @@
       .topbar {
         grid-column: 1; grid-row: 1;
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 5px;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 4px;
         padding: 6px;
         border-right: 2px solid var(--border);
         border-bottom: 1px solid var(--border);
@@ -454,7 +467,7 @@
         min-height: 36px; padding: 0 8px; font-size: 12px;
       }
       .topbar .icon-btn {
-        min-width: 0; min-height: 34px; padding: 0 4px; font-size: 11px;
+        min-width: 0; min-height: 34px; padding: 0 3px; font-size: 10px;
       }
 
       .search-wrap {
@@ -551,7 +564,8 @@
     }
 
     @media (orientation: landscape) and (max-height: 480px) {
-      .canvas-controls-left { gap: 4px; bottom: 6px; left: 6px; }
+      .canvas-controls-left, .map-controls-list { gap: 4px; }
+      .canvas-controls-left { bottom: 6px; left: 6px; }
       .canvas-controls-right { gap: 5px; bottom: 6px; right: 6px; }
       .map-chip { min-height: 28px; padding: 0 7px; font-size: 11px; border-radius: 8px; }
       .fab { min-width: 42px; min-height: 38px; font-size: 18px; border-radius: 10px; }
@@ -573,12 +587,13 @@
         <span id="gpsDot" class="dot"></span>
         <span id="gpsSummary">GPS: ootel</span>
       </button>
+      <button id="searchToggleBtn" class="icon-btn" type="button" aria-expanded="false" title="Ava või peida otsing">OTSI</button>
       <button id="wakeBtn" class="icon-btn" type="button">ÄRKVEL</button>
       <button id="soundBtn" class="icon-btn active" type="button">HELI</button>
       <button id="themeBtn" class="icon-btn" type="button">ÖÖ</button>
     </div>
 
-    <div class="search-wrap">
+    <div id="searchWrap" class="search-wrap collapsed">
       <div class="search-row">
         <input id="searchInput" class="search-input" type="search" placeholder="Sisesta aadress või kohanimi (alates 3 tähest)" autocomplete="off" />
         <button id="searchBtn" class="btn-primary" type="button">OTSI</button>
@@ -632,11 +647,14 @@
         </div>
 
         <div class="canvas-controls-left">
-          <button id="poiMenuBtn" class="map-chip" type="button">HUVIPUNKTID</button>
-          <button id="autoZoomBtn" class="map-chip active" type="button">SUUM: AUTO</button>
-          <button id="orientBtn" class="map-chip" type="button">SUUND ÜLES</button>
-          <button id="view3dBtn" class="map-chip" type="button">VAADE: 2D</button>
-          <button id="baseMapBtn" class="map-chip" type="button">ALUS: GRAAFIKA</button>
+          <div id="mapControlsList" class="map-controls-list collapsed">
+            <button id="poiMenuBtn" class="map-chip" type="button">HUVIPUNKTID</button>
+            <button id="autoZoomBtn" class="map-chip active" type="button">SUUM: AUTO</button>
+            <button id="orientBtn" class="map-chip" type="button">SUUND ÜLES</button>
+            <button id="view3dBtn" class="map-chip" type="button">VAADE: 2D</button>
+            <button id="baseMapBtn" class="map-chip" type="button">ALUS: GRAAFIKA</button>
+          </div>
+          <button id="mapControlsToggleBtn" class="map-chip controls-toggle" type="button" aria-expanded="false">SEADED ▴</button>
         </div>
 
         <div id="offrouteBanner" class="offroute-banner">
@@ -761,6 +779,7 @@
 
       const el = {
         gpsPill: $("gpsPill"), gpsDot: $("gpsDot"), gpsSummary: $("gpsSummary"),
+        searchToggleBtn: $("searchToggleBtn"), searchWrap: $("searchWrap"),
         wakeBtn: $("wakeBtn"), soundBtn: $("soundBtn"), themeBtn: $("themeBtn"),
         searchInput: $("searchInput"), searchBtn: $("searchBtn"), wpBtn: $("wpBtn"), clearBtn: $("clearBtn"),
         routeProfileRow: $("routeProfileRow"),
@@ -771,7 +790,9 @@
         poiToast: $("poiToast"), wpPickBanner: $("wpPickBanner"), wpPickCancelBtn: $("wpPickCancelBtn"),
         gpsCta: $("gpsCta"), gpsCtaText: $("gpsCtaText"),
         startGpsDirectBtn: $("startGpsDirectBtn"), startNetGpsBtn: $("startNetGpsBtn"),
-        hideCtaBtn: $("hideCtaBtn"), poiMenuBtn: $("poiMenuBtn"), autoZoomBtn: $("autoZoomBtn"),
+        hideCtaBtn: $("hideCtaBtn"),
+        mapControlsList: $("mapControlsList"), mapControlsToggleBtn: $("mapControlsToggleBtn"),
+        poiMenuBtn: $("poiMenuBtn"), autoZoomBtn: $("autoZoomBtn"),
         orientBtn: $("orientBtn"), view3dBtn: $("view3dBtn"), baseMapBtn: $("baseMapBtn"), mapCredit: $("mapCredit"),
         offrouteBanner: $("offrouteBanner"), recalcBtn: $("recalcBtn"),
         recenterBtn: $("recenterBtn"), zoomInBtn: $("zoomInBtn"), zoomOutBtn: $("zoomOutBtn"),
@@ -3481,6 +3502,7 @@
       function setDestination(dest) {
         el.results.classList.remove("open");
         el.searchInput.value = dest.name;
+        setSearchPanelOpen(false, true);
         state.destination = dest;
         state.route = null;
         state.riderProj = null;
@@ -5194,23 +5216,28 @@
         ctx.translate(x, y);
         if (sc !== 1) ctx.scale(sc, sc);
         if (p > 0.05) {
-          ctx.fillStyle = state.dayMode ? "rgba(0,0,0,0.22)" : "rgba(0,230,118,0.18)";
+          ctx.fillStyle = state.dayMode ? "rgba(0,0,0,0.24)" : "rgba(255,36,56,0.28)";
           ctx.beginPath();
           ctx.ellipse(0, 5 * p, 17, 9, 0, 0, Math.PI * 2);
           ctx.fill();
           ctx.scale(1, 1 - 0.22 * p);
         }
         ctx.rotate(rotRad);
-        ctx.fillStyle = pal.text;
-        ctx.strokeStyle = pal.bg;
-        ctx.lineWidth = 2.5;
         ctx.beginPath();
         ctx.moveTo(0, -18);
         ctx.lineTo(13, 14);
         ctx.lineTo(0, 7);
         ctx.lineTo(-13, 14);
         ctx.closePath();
+        // Kõrge kontrastsusega punane navigeerimiskolmnurk (selgelt nähtav nii valgel kui mustal kaardil)
+        ctx.strokeStyle = state.dayMode ? "#ffffff" : "#000000";
+        ctx.lineWidth = 4.6;
+        ctx.lineJoin = "round";
+        ctx.stroke();
+        ctx.fillStyle = state.dayMode ? "#e6192e" : "#ff2438";
         ctx.fill();
+        ctx.strokeStyle = state.dayMode ? "#7a000c" : "#ffffff";
+        ctx.lineWidth = 1.6;
         ctx.stroke();
         ctx.restore();
       }
@@ -7078,12 +7105,52 @@
           addLog("Kompassi kuulaja aktiivne");
         }
       });
+      function setSearchPanelOpen(open, saveToStorage) {
+        const isOpen = Boolean(open);
+        if (el.searchWrap) el.searchWrap.classList.toggle("collapsed", !isOpen);
+        if (el.searchToggleBtn) {
+          el.searchToggleBtn.classList.toggle("accent-active", isOpen);
+          el.searchToggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+          el.searchToggleBtn.textContent = isOpen ? "PEIDA" : "OTSI";
+        }
+        if (!isOpen && el.results) el.results.classList.remove("open");
+        if (saveToStorage) {
+          try { localStorage.setItem("motonav_search_open", isOpen ? "1" : "0"); } catch (_) {}
+        }
+        if (isOpen && el.searchInput) {
+          setTimeout(() => { try { el.searchInput.focus(); } catch (_) {} }, 50);
+        }
+        scheduleResizeCanvas();
+      }
+
+      function setMapControlsOpen(open, saveToStorage) {
+        const isOpen = Boolean(open);
+        if (el.mapControlsList) el.mapControlsList.classList.toggle("collapsed", !isOpen);
+        if (el.mapControlsToggleBtn) {
+          el.mapControlsToggleBtn.classList.toggle("accent", isOpen);
+          el.mapControlsToggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+          el.mapControlsToggleBtn.textContent = isOpen ? "PEIDA ▾" : "SEADED ▴";
+        }
+        if (saveToStorage) {
+          try { localStorage.setItem("motonav_controls_open", isOpen ? "1" : "0"); } catch (_) {}
+        }
+      }
+
+      el.searchToggleBtn.addEventListener("click", () => {
+        const currentlyOpen = el.searchWrap && !el.searchWrap.classList.contains("collapsed");
+        setSearchPanelOpen(!currentlyOpen, true);
+      });
+      el.mapControlsToggleBtn.addEventListener("click", () => {
+        const currentlyOpen = el.mapControlsList && !el.mapControlsList.classList.contains("collapsed");
+        setMapControlsOpen(!currentlyOpen, true);
+      });
+
       el.gpsPill.addEventListener("click", () => { updateGpsUI(); el.diagModal.classList.add("open"); });
       el.closeDiagBtn.addEventListener("click", () => el.diagModal.classList.remove("open"));
-      const scheduleResizeCanvas = () => {
+      function scheduleResizeCanvas() {
         resizeCanvas();
         setTimeout(resizeCanvas, 160);
-      };
+      }
       window.addEventListener("resize", scheduleResizeCanvas);
       window.addEventListener("orientationchange", scheduleResizeCanvas);
       if (window.visualViewport) {
@@ -7110,16 +7177,22 @@
       let savedBaseMap = "graphic";
       let savedView3d = false;
       let savedProfile = "direct";
+      let savedSearchOpen = false;
+      let savedControlsOpen = false;
       try {
         const stored = localStorage.getItem("motonav_basemap_v2");
         if (stored && BASE_MAPS[stored]) savedBaseMap = stored;
         savedView3d = localStorage.getItem("motonav_view3d") === "1";
         const storedProf = localStorage.getItem("motonav_route_profile");
         if (storedProf && ROUTE_PROFILES[storedProf]) savedProfile = storedProf;
+        savedSearchOpen = localStorage.getItem("motonav_search_open") === "1";
+        savedControlsOpen = localStorage.getItem("motonav_controls_open") === "1";
       } catch (_) {}
       applyBaseMapMode(savedBaseMap, false);
       applyView3dMode(savedView3d, false, true);
       applyRouteProfile(savedProfile, false, false);
+      setSearchPanelOpen(savedSearchOpen, false);
+      setMapControlsOpen(savedControlsOpen, false);
       updateWaypointBadge();
       initOpenFreeMapTileJson();
       renderManeuverIcon("straight");
